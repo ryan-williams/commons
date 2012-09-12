@@ -57,9 +57,9 @@ class PythonAntlrBuilder(object):
     args = [
         'java',
         '-jar',
-        os.path.join(self.root, 'build-support/ivy/lib/ivy-2.2.0.jar'),
+        os.path.join(self.root, 'build/pants-build-support/ivy/lib/ivy-2.2.0.jar'),
         '-settings',
-        os.path.join(self.root, 'build-support/ivy/ivysettings.xml'),
+        os.path.join(self.root, 'build/pants-build-support/ivy/ivysettings.xml'),
         '-dependency',
         'org.antlr',
         'antlr',
