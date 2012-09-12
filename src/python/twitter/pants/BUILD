@@ -57,6 +57,10 @@ python_binary(
   dependencies = [
     pants(":pants-lib")
   ],
+  platforms = [
+    'macosx-10.4-x86_64',
+    'linux-x86_64'
+  ],
   source = 'bin/pants_exe.py',
 )
 

@@ -59,17 +59,14 @@ class PythonThriftBuilder(object):
   def thrift_binary(root_dir):
     # TODO(Brian Wickman):  Will we ever need to make this smarter?
     PLATMAP = {
-      ('darwin', 'i386'): ['mac', '10.6', '0.5.0-finagle', 'thrift'],
-      ('darwin', 'x86_64'): ['mac', '10.6', '0.5.0-finagle', 'thrift'],
-      ('darwin', 'x86_64'): ['mac', '10.7', '0.5.0-finagle', 'thrift'],
-      ('linux',  'x86_64'): ['linux', 'x86_64', '0.5.0-finagle', 'thrift'],
-      ('linux',  'i686') : ['linux', 'i386', '0.5.0-finagle', 'thrift']
+      ('darwin', 'x86_64'): ['mac', '10.6', '0.8.0-finagle', 'thrift'],
+      ('linux',  'x86_64'): ['linux', 'x86_64', '0.8.0-finagle', 'thrift'],
     }
     uname = os.uname()
     platform = (uname[0].lower(), uname[4])
     if platform not in PLATMAP:
       raise PythonThriftBuilder.UnknownPlatformException(platform)
-    return os.path.join(root_dir, 'build-support', 'bin', 'thrift', *PLATMAP[platform])
+    return os.path.join(root_dir, 'build', 'pants-build-support', 'bin', 'thrift', *PLATMAP[platform])
 
   def run_thrifts(self):
     for src in self.target.sources:

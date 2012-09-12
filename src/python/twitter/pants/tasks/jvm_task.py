@@ -30,6 +30,7 @@ class JvmTask(Task):
     # TODO(John Sirois): undo cheeseball! - derive src/resources from target attribute and then
     # later fix tests to declare their resources as well?
     classpath.extend(os.path.join(get_buildroot(), path)
-                     for path in ('src/resources', 'tests/resources'))
+                     for path in ('core/src/main/resources', 'core/src/test/resources',
+                                  'web/src/main/resources', 'web/src/test/resources'))
 
     return classpath
