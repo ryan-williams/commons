@@ -41,6 +41,16 @@ limitations under the License.
         <artifact pattern="${ivy.internal-repo.dir}/[organisation]/[module]/[artifact]-[revision](-[classifier]).[ext]"/>
       </filesystem>
 
+      <ibiblio name="simile.mit.edu"
+               m2compatible="true"
+               usepoms="true"
+               root="http://simile.mit.edu/maven/"/>
+
+      <ibiblio name="maven.org"
+               m2compatible="true"
+               usepoms="true"
+               root="http://repo1.maven.org/maven2/"/>
+
       <ibiblio name="maven2"
                m2compatible="true"
                usepoms="true"
