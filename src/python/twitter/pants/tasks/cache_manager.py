@@ -20,6 +20,7 @@ except ImportError:
   import pickle
 
 from twitter.pants.base.build_invalidator import BuildInvalidator, CacheKeyGenerator, NO_SOURCES, TARGET_SOURCES
+from twitter.pants.base.double_tree import DoubleTree
 from twitter.pants.base.target import Target
 from twitter.pants.targets import JarDependency
 from twitter.pants.targets.internal import InternalTarget
@@ -45,6 +46,21 @@ class VersionedTargetSet(object):
     self._cache_manager.update(self)
     self.valid = True
 
+class VersionedTarget(VersionedTargetSet):
+  def __init__(self, cache_manager, target, cache_key, versioned_targets_by_target):
+    VersionedTargetSet.__init__(self, cache_manager, [ target ], [ cache_key ])
+    self.target = target
+    self.id = target.id
+    self.dependencies = set([])
+    def add_deps(t):
+      if hasattr(t, 'dependencies'):
+        for dependency in t.dependencies:
+          if dependency in versioned_targets_by_target:
+            self.dependencies.add(versioned_targets_by_target[dependency])
+          else:
+            add_deps(dependency)
+    add_deps(target)
+
 # The result of calling check() on a CacheManager.
 # Each member is a list of VersionedTargetSet objects in topological order.
 # Tasks may need to perform no, some or all operations on either of these, depending on how they
@@ -62,6 +78,14 @@ class InvalidationResult(object):
 
     # Just the invalid targets, partitioned if so requested.
     self.invalid_vts_partitioned = invalid_vts_partitioned
+
+class ParallelInvalidationResult(object):
+  def __init__(self, all_vts, invalid_vts, invalid_target_tree):
+    self.all_vts = all_vts
+
+    self.invalid_vts = invalid_vts
+
+    self._invalid_target_tree = invalid_target_tree
 
 class CacheManager(object):
   """Manages cache checks, updates and invalidation keeping track of basic change
@@ -95,6 +119,14 @@ class CacheManager(object):
     invalid_vts_partitioned = self._partition_versioned_targets(invalid_vts, partition_size_hint)
     return InvalidationResult(all_vts, all_vts_partitioned, invalid_vts, invalid_vts_partitioned)
 
+  def invalidate_and_break_into_parallelizable_targets(self, targets):
+    all_vts = self._sort_and_validate_targets(targets)
+    invalid_vts = filter(lambda vt: not vt.valid, all_vts)
+    print "making tree"
+    invalid_target_tree = DoubleTree(invalid_vts, lambda t: t.dependencies)
+    print "tree done"
+    return ParallelInvalidationResult(all_vts, invalid_vts, invalid_target_tree)
+
   def _sort_and_validate_targets(self, targets):
     """Validate each target.
 
@@ -104,6 +136,7 @@ class CacheManager(object):
     # we use earlier cache keys to compute later cache keys in this case.
     ordered_targets = self._order_target_list(targets)
     versioned_targets = []
+    versioned_targets_by_target = {}
 
     # Map from id to current fingerprint of the target with that id. We update this as we iterate, in
     # topological order, so when handling a target, this will already contain all its deps (in this round).
@@ -139,7 +172,10 @@ class CacheManager(object):
             # know jars are special and python requirements __str__ works for this purpose.
       cache_key = self._key_for(target, dependency_keys)
       id_to_hash[target.id] = cache_key.hash
-      versioned_targets.append(VersionedTargetSet(self, [target], [cache_key]))
+
+      versioned_target = VersionedTarget(self, target, cache_key, versioned_targets_by_target)
+      versioned_targets.append(versioned_target)
+      versioned_targets_by_target[target] = versioned_target
 
     return versioned_targets
 
@@ -160,7 +196,7 @@ class CacheManager(object):
   def _partition_versioned_targets(self, versioned_targets, partition_size_hint):
     """Groups versioned targets so that each group has roughly the same number of sources.
 
-    versioned_targets is a list of VersionedTargetSet objects  [ vt1, vt2, vt3, vt4, vt5, vt6, ...].
+    versioned_targets is a list of VersionedTarget objects  [ vt1, vt2, vt3, vt4, vt5, vt6, ...].
 
     Returns a list of VersionedTargetSet objects, e.g., [ VT1, VT2, VT3, ...] representing the
     same underlying targets. E.g., VT1 is the combination of [vt1, vt2, vt3], VT2 is the combination
@@ -209,10 +245,7 @@ class CacheManager(object):
     return res
 
   def _combine_versioned_targets(self, vts):
-    targets = []
-    for vt in vts:
-      targets.extend(vt.targets)
-    return VersionedTargetSet(self, targets, [vt.cache_key for vt in vts])
+    return VersionedTargetSet(self, [ vt.target for vt in vts ] , [ vt.cache_key for vt in vts ])
 
   def _key_for(self, target, dependency_keys):
     def fingerprint_extra(sha):

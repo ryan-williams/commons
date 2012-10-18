@@ -37,6 +37,7 @@ from twitter.pants.tasks import TaskError
 from twitter.pants.tasks.binary_utils import nailgun_profile_classpath
 from twitter.pants.tasks.jvm_compiler_dependencies import Dependencies
 from twitter.pants.tasks.nailgun_task import NailgunTask
+from twitter.pants.tasks.parallel_compile_manager import ParallelCompileManager
 
 
 # Well known metadata file required to register scalac plugins with nsc.
@@ -66,6 +67,10 @@ class ScalaCompile(NailgunTask):
       help="Roughly how many source files to attempt to compile together. Set to a large number to compile " \
            "all sources together. Set this to 0 to compile target-by-target. Default is set in pants.ini.")
 
+    option_group.add_option(mkflag("num-parallel-compiles"), dest="scala_compile_num_parallel_compiles",
+      action="store", type="int", default=1,
+      help="Use up to this many parallel invocations of Zinc while compiling scala files.")
+
     option_group.add_option(mkflag("color"), mkflag("color", negate=True),
                             dest="scala_compile_color",
                             action="callback", callback=mkflag.set_bool,
@@ -78,6 +83,15 @@ class ScalaCompile(NailgunTask):
       context.options.scala_compile_partition_size_hint \
       if context.options.scala_compile_partition_size_hint != -1 else \
       context.config.getint('scala-compile', 'partition_size_hint')
+
+    self._num_parallel_compiles = \
+      context.options.scala_compile_num_parallel_compiles \
+      if context.options.scala_compile_num_parallel_compiles and \
+         context.options.scala_compile_num_parallel_compiles != 1 \
+      else \
+      context.config.getint('scala-compile', 'num_parallel_compiles', 1)
+
+    print "\n max num parallel compiles: %d\n" % self._num_parallel_compiles
 
     # We use the scala_compile_color flag if it is explicitly set on the command line.
     self._color = \
@@ -144,6 +158,7 @@ class ScalaCompile(NailgunTask):
     return True
 
   def execute(self, targets):
+    self.context.log.info('\n\nscala compiling %d targets in parallel %s\n\n' % (len(targets), str(self._num_parallel_compiles)))
     scala_targets = filter(ScalaCompile._has_scala_sources, targets)
     if scala_targets:
       safe_mkdir(self._depfile_dir)
@@ -159,15 +174,33 @@ class ScalaCompile(NailgunTask):
             cp.insert(0, (conf, jar))
 
       with self.invalidated(scala_targets, invalidate_dependents=True,
-          partition_size_hint=self._partition_size_hint) as invalidation_result:
+          partition_size_hint=self._partition_size_hint, is_parallel_compile=(self._num_parallel_compiles > 1)) as invalidation_result:
+
         for vt in invalidation_result.all_vts:
           if vt.valid:  # Don't compile, just post-process.
             self.post_process(vt, upstream_analysis_caches, split_artifact=False)
-        for vt in invalidation_result.invalid_vts_partitioned:
-          # Compile, using partitions for efficiency.
-          self.execute_single_compilation(vt, cp, upstream_analysis_caches)
-          if not self.dry_run:
-            vt.update()
+
+        if self._num_parallel_compiles > 1:
+          def compile_cmd(target_set):
+            return self.execute_single_compilation(target_set, cp, upstream_analysis_caches, True)
+
+          def post_compile_cmd(vt):
+            if self.dry_run:
+              vt.update()
+
+          ParallelCompileManager(
+            self.context.log,
+            invalidation_result._invalid_target_tree,
+            self._num_parallel_compiles,
+            compile_cmd,
+            post_compile_cmd).execute()
+        else:
+          for vt in invalidation_result.invalid_vts_partitioned:
+            # Compile, using partitions for efficiency.
+            self.execute_single_compilation(vt, cp, upstream_analysis_caches)
+            if not self.dry_run:
+              vt.update()
+
 
   def create_output_paths(self, targets):
     compilation_id = Target.maybe_readable_identify(targets)
@@ -179,11 +212,12 @@ class ScalaCompile(NailgunTask):
     analysis_cache = os.path.join(self._analysis_cache_dir, compilation_id) + '.analysis_cache'
     return output_dir, depfile, analysis_cache
 
-  def execute_single_compilation(self, versioned_target_set, cp, upstream_analysis_caches):
+  def execute_single_compilation(self, versioned_target_set, cp, upstream_analysis_caches, run_async=False):
     """Execute a single compilation, updating upstream_analysis_caches if needed."""
     output_dir, depfile, analysis_cache = self.create_output_paths(versioned_target_set.targets)
     safe_mkdir(output_dir)
 
+    result = None
     if not versioned_target_set.valid:
       with self.check_artifact_cache(versioned_target_set,
                                      build_artifacts=[output_dir, depfile, analysis_cache]) as in_cache:
@@ -198,10 +232,12 @@ class ScalaCompile(NailgunTask):
                                     '\n  '.join(str(t) for t in sources_by_target.keys()))
             else:
               classpath = [jar for conf, jar in cp if conf in self._confs]
-              result = self.compile(classpath, sources, output_dir, analysis_cache, upstream_analysis_caches, depfile)
-              if result != 0:
+              result = self.compile(classpath, sources,
+                output_dir, analysis_cache, upstream_analysis_caches, depfile, run_async=run_async)
+              if result != 0 and not run_async:
                 raise TaskError('%s returned %d' % (self._main, result))
     self.post_process(versioned_target_set, upstream_analysis_caches, split_artifact=True)
+    return result
 
   # Post-processing steps that must happen even for valid targets.
   def post_process(self, vt, upstream_analysis_caches, split_artifact):
@@ -259,7 +295,7 @@ class ScalaCompile(NailgunTask):
       collect_sources(target)
     return sources
 
-  def compile(self, classpath, sources, output_dir, analysis_cache, upstream_analysis_caches, depfile):
+  def compile(self, classpath, sources, output_dir, analysis_cache, upstream_analysis_caches, depfile, run_async=False):
     # To pass options to scalac simply prefix with -S.
     args = ['-S' + x for x in self._args]
 
@@ -295,7 +331,7 @@ class ScalaCompile(NailgunTask):
     args.extend(sources)
 
     self.context.log.debug('Executing: %s %s' % (self._main, ' '.join(args)))
-    return self.runjava(self._main, classpath=self._zinc_classpath, args=args, jvmargs=self._jvm_args)
+    return self.runjava(self._main, classpath=self._zinc_classpath, args=args, jvmargs=self._jvm_args, run_async=run_async)
 
   # Splits an artifact representing several targets into target-by-target artifacts.
   # Creates an output classes dir, a depfile and an analysis file for each target.

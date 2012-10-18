@@ -18,6 +18,7 @@ python_tests(name = 'tasks',
   sources = globs('*.py'),
   dependencies = [
     pants('src/python/twitter/pants:pants-lib'),
-    pants('tests/python/twitter/pants/test')
+    pants('tests/python/twitter/pants/test'),
+    python_requirement('mock'),
   ]
 )

@@ -94,7 +94,7 @@ class NailgunTask(Task):
     self._ng_out = os.path.join(workdir, 'stdout')
     self._ng_err = os.path.join(workdir, 'stderr')
 
-  def runjava(self, main, classpath=None, args=None, jvmargs=None):
+  def runjava(self, main, classpath=None, args=None, jvmargs=None, run_async=False):
     """
       Runs the java main using the given classpath and args.  If --no-ng-daemons is specified then
       the java main is run in a freshly spawned subprocess, otherwise a persistent nailgun server
@@ -122,7 +122,8 @@ class NailgunTask(Task):
     else:
       only_write_cmd_line_to = StringIO.StringIO() if self.dry_run else None
       ret = binary_utils.runjava(main=main, classpath=cp, args=args, jvmargs=jvmargs,
-        only_write_cmd_line_to=only_write_cmd_line_to)
+        only_write_cmd_line_to=only_write_cmd_line_to,
+        run_async=run_async)
       if only_write_cmd_line_to:
         print('********** Direct Java dry run: %s' % only_write_cmd_line_to.getvalue())
         only_write_cmd_line_to.close()
