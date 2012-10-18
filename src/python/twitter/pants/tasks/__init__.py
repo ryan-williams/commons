@@ -118,7 +118,7 @@ class Task(object):
     one VersionedTargetSet per target. It is up to the caller to do the right thing with whatever partitioning
     it asks for.
 
-    Yields an InvalidationCheck object reflecting the (partitioned) targets. If no exceptions are
+    Yields an InvalidationResult object reflecting the (partitioned) targets. If no exceptions are
     thrown by work in the block, the cache is updated for the targets.
     """
     extra_data = []
@@ -133,12 +133,12 @@ class Task(object):
     cache_manager = CacheManager(self._cache_key_generator, self._build_invalidator_dir,
       invalidate_dependents, extra_data, only_buildfiles)
 
-    invalidation_check = cache_manager.check(targets, partition_size_hint)
+    invalidation_result = cache_manager.check(targets, partition_size_hint)
 
-    num_invalid_partitions = len(invalidation_check.invalid_vts_partitioned)
+    num_invalid_partitions = len(invalidation_result.invalid_vts_partitioned)
     num_invalid_targets = 0
     num_invalid_sources = 0
-    for vt in invalidation_check.invalid_vts:
+    for vt in invalidation_result.invalid_vts:
       if not vt.valid:
         num_invalid_targets += len(vt.targets)
         num_invalid_sources += vt.cache_key.num_sources
@@ -149,9 +149,9 @@ class Task(object):
                             (num_invalid_sources, num_invalid_targets, num_invalid_partitions))
 
     # Yield the result, and then update the cache.
-    yield invalidation_check
+    yield invalidation_result
     if not self.dry_run:
-      for vt in invalidation_check.invalid_vts:
+      for vt in invalidation_result.invalid_vts:
         vt.update()  # In case the caller doesn't update.
 
   @contextmanager
