@@ -159,11 +159,11 @@ class ScalaCompile(NailgunTask):
             cp.insert(0, (conf, jar))
 
       with self.invalidated(scala_targets, invalidate_dependents=True,
-          partition_size_hint=self._partition_size_hint) as invalidation_check:
-        for vt in invalidation_check.all_vts:
+          partition_size_hint=self._partition_size_hint) as invalidation_result:
+        for vt in invalidation_result.all_vts:
           if vt.valid:  # Don't compile, just post-process.
             self.post_process(vt, upstream_analysis_caches, split_artifact=False)
-        for vt in invalidation_check.invalid_vts_partitioned:
+        for vt in invalidation_result.invalid_vts_partitioned:
           # Compile, using partitions for efficiency.
           self.execute_single_compilation(vt, cp, upstream_analysis_caches)
           if not self.dry_run:
