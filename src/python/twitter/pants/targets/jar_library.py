@@ -14,11 +14,11 @@
 # limitations under the License.
 # ==================================================================================================
 
-from twitter.pants.base import Target
 from twitter.pants.base.generator import TemplateData
+from twitter.pants.targets import InternalTarget
 
-class JarLibrary(Target):
-  """Serves as a proxy for one or more JarDependencies or JavaTargets."""
+class JarLibrary(InternalTarget):
+  """Serves as a proxy for one or more JarDependencies or JvmTargets."""
 
   def __init__(self, name, dependencies):
     """name: The name of this module target, addressable via pants via the portion of the spec
@@ -27,9 +27,8 @@ class JarLibrary(Target):
         JarLibraries or JavaTargets"""
 
     assert len(dependencies) > 0, "At least one dependency must be specified"
-    Target.__init__(self, name, False)
+    InternalTarget.__init__(self, name, dependencies, False)
     self.add_label('jars')
-    self.dependencies = dependencies
 
   def resolve(self):
     for dependency in self.dependencies:

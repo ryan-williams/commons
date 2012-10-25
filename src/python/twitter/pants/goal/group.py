@@ -62,7 +62,7 @@ class Group(object):
             context.log.info('[%s:%s]' % (phase, goal.name))
             execute_task(goal.name, tasks_by_goal[goal], context.targets())
           else:
-            for chunk in Group.create_chunks(context, goals):
+            for chunk in Group._create_chunks(context, goals):
               for goal in goals:
                 _acquire_lock_if_needed(goal)
                 goal_chunk = filter(goal.group.predicate, chunk)
@@ -74,7 +74,7 @@ class Group(object):
         context.release_lock()
 
   @staticmethod
-  def create_chunks(context, goals):
+  def _create_chunks(context, goals):
     def discriminator(target):
       for i, goal in enumerate(goals):
         if goal.group.predicate(target):
@@ -111,3 +111,6 @@ class Group(object):
   def __init__(self, name, predicate):
     self.name = name
     self.predicate = predicate
+
+  def __repr__(self):
+    return "Group(%s,%s)" % (self.name, self.predicate.__name__)

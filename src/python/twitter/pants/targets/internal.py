@@ -140,7 +140,7 @@ class InternalTarget(Target):
 
     return InternalTarget.coalesce_targets([ self ], discriminator)
 
-  def __init__(self, name, dependencies, is_meta):
+  def __init__(self, name, dependencies, is_meta=False):
     Target.__init__(self, name, is_meta)
 
     self.add_label('internal')
