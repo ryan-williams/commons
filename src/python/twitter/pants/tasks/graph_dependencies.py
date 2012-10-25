@@ -1,7 +1,7 @@
 __author__ = 'ryan'
 
 from pydot import *
-from twitter.pants.targets import JavaLibrary, JarDependency, ScalaLibrary, JvmTarget
+from twitter.pants.targets import JavaLibrary, JarDependency, ScalaLibrary, JvmTarget, InternalTarget
 from twitter.pants.tasks import Task
 
 class GraphDependencies(Task):
@@ -24,7 +24,7 @@ class GraphDependencies(Task):
     targets = self.context.target_roots
 
     def key_fn(target):
-      return target.id
+      return target.id.replace('src.main', '').replace('com.foursquare', '')
 
     def color_for_target(target):
       if isinstance(target, JavaLibrary):
@@ -35,9 +35,15 @@ class GraphDependencies(Task):
         return "#ffcccc"
       if isinstance(target, JvmTarget):
         return "#ffffcc"
+      if isinstance(target, JarDependency):
+        return "#ffccff"
+      if isinstance(target, InternalTarget):
+        return "#ccffff"
       return "#ffffff"
 
     def node_from_target(target):
+      if isinstance(target, JarDependency):
+        return None
       return Node(key_fn(target), style="filled", fillcolor=color_for_target(target))
 
     print "graphing targets: " #+ "\n\t".join([str(t) for t in targets])
@@ -54,15 +60,23 @@ class GraphDependencies(Task):
         seen_target_ids.add(id)
 
         node = node_from_target(target)
-        #print "\tadding node %s %s %s" % (node.get_name(), id, target.id)
-        g.add_node(node)
+        if node:
+          #print "\tadding node %s %s %s" % (node.get_name(), id, target.id)
+          g.add_node(node)
+        else:
+          #print "\tskipping node %s" % id
+          return
         #print "\tnodes:"
 #        for n in g.get_nodes():
 #          print "\t\t%s" % n.get_name()
         if hasattr(target, 'dependencies'):
+          print "\t%d deps" % len(target.dependencies)
           for dependency in target.dependencies:
-            g.add_edge(Edge(id, key_fn(dependency)))
-            process_target(dependency, indent + 1)
+            if node_from_target(dependency):
+              g.add_edge(Edge(id, key_fn(dependency)))
+              process_target(dependency, indent + 1)
+        else:
+          print "\tno deps..?"
 
     for target in targets:
       process_target(target, 0)
@@ -82,11 +96,3 @@ class GraphDependencies(Task):
       print "Writing graph to " + self.context.options.outfile
       g.write_png(self.context.options.outfile)
 
-
-    print "targets: "
-    for t in self.context.targets():
-      print "\t" + str(t)
-
-    print "root targets: "
-    for t in self.context.target_roots:
-      print "\t" + str(t)
