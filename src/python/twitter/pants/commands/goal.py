@@ -672,3 +672,10 @@ goal(
   action=SetupPythonEnvironment,
 ).install('setup').with_description(
 "Setup the target's build environment.")
+
+from twitter.pants.tasks.graph_dependencies import GraphDependencies
+goal(
+  name='graph',
+  action=GraphDependencies,
+  #dependencies=['gen', 'resolve'],
+).install().with_description('Emit a graph of the dependencies of the given targets.')
