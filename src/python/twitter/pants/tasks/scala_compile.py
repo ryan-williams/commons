@@ -68,7 +68,7 @@ class ScalaCompile(NailgunTask):
            "all sources together. Set this to 0 to compile target-by-target. Default is set in pants.ini.")
 
     option_group.add_option(mkflag("num-parallel-compiles"), dest="scala_compile_num_parallel_compiles",
-      action="store", type="int", default=1,
+      action="store", type="int", default=0,
       help="Use up to this many parallel invocations of Zinc while compiling scala files.")
 
     option_group.add_option(mkflag("color"), mkflag("color", negate=True),
@@ -84,14 +84,14 @@ class ScalaCompile(NailgunTask):
       if context.options.scala_compile_partition_size_hint != -1 else \
       context.config.getint('scala-compile', 'partition_size_hint')
 
-    self._num_parallel_compiles = \
-      context.options.scala_compile_num_parallel_compiles \
-      if context.options.scala_compile_num_parallel_compiles and \
-         context.options.scala_compile_num_parallel_compiles != 1 \
-      else \
-      context.config.getint('scala-compile', 'num_parallel_compiles', 1)
+    self._parallelize_compilation = True if context.options.scala_compile_num_parallel_compiles > 0 else False
 
-    print "\n max num parallel compiles: %d\n" % self._num_parallel_compiles
+    self._num_parallel_compiles = context.options.scala_compile_num_parallel_compiles
+
+    if self._parallelize_compilation:
+      print "\n max num parallel compiles: %d\n" % self._num_parallel_compiles
+    else:
+      print "\n compiling in serial\n"
 
     # We use the scala_compile_color flag if it is explicitly set on the command line.
     self._color = \
@@ -159,6 +159,8 @@ class ScalaCompile(NailgunTask):
 
   def execute(self, targets):
     self.context.log.info('\n\nscala compiling %d targets in parallel %s\n\n' % (len(targets), str(self._num_parallel_compiles)))
+    for target in targets:
+      self.context.log.info("\t%s" % target.id)
     scala_targets = filter(ScalaCompile._has_scala_sources, targets)
     if scala_targets:
       safe_mkdir(self._depfile_dir)
@@ -174,13 +176,13 @@ class ScalaCompile(NailgunTask):
             cp.insert(0, (conf, jar))
 
       with self.invalidated(scala_targets, invalidate_dependents=True,
-          partition_size_hint=self._partition_size_hint, is_parallel_compile=(self._num_parallel_compiles > 1)) as invalidation_result:
+          partition_size_hint=self._partition_size_hint, is_parallel_compile=self._parallelize_compilation) as invalidation_result:
 
         for vt in invalidation_result.all_vts:
           if vt.valid:  # Don't compile, just post-process.
             self.post_process(vt, upstream_analysis_caches, split_artifact=False)
 
-        if self._num_parallel_compiles > 1:
+        if self._parallelize_compilation:
           def compile_cmd(target_set):
             return self.execute_single_compilation(target_set, cp, upstream_analysis_caches, True)
 

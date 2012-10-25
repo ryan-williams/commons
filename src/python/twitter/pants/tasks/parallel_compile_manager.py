@@ -35,23 +35,9 @@ class ParallelCompileManager(object):
 
   def _get_next_frontier_node(self):
     """Get a new frontier node, if any is ready to be compiled (i.e. it doesn't depend on any compiling target sets."""
-
     if len(self._frontier_nodes) > 0:
       return list(self._frontier_nodes)[0]
     return None
-
-#    for potential_next_target_node in self._frontier_nodes:
-#      # Check whether this target node depends on any of the currently compiling targets; if so, it's not ready.
-#      is_potential_target_ready = True
-#      for in_flight_target_node in self._in_flight_target_nodes:
-#        if in_flight_target_node in potential_next_target_node.children:
-#          is_potential_target_ready = False
-#          break
-#
-#      if is_potential_target_ready:
-#        return potential_next_target_node
-#
-#    return None
 
 
   def _assert_target_in_frontier(self, target_node):
@@ -88,7 +74,7 @@ class ParallelCompileManager(object):
     "Start compiling a given VersionedTarget"
     self._logger.info("\n*** Spawning compile: %s\n" % target_node.data.id)
     compile_process = self._compile_cmd(target_node.data)
-    if not compile_process:
+    if compile_process:
       # NOTE(ryan): this can happen if the target had no sources, therefore compile_cmd did not result in a process
       # being spawned
       self._compiling_nodes_by_process[compile_process] = target_node
@@ -186,8 +172,15 @@ class ParallelCompileManager(object):
     print ''
 
     # Once the last of the targets has been sent off to compile, wait around for those last compiles to finish.
-    while len(self._in_flight_target_nodes) > 0:
-      if not self._poll_compile_processes():
-        return False
+    success = True
+    for compile_process in self._compile_processes:
+      compile_process.wait()
+      if compile_process.returncode != 0:
+        success = False
 
-    return True
+    return success
+#    while len(self._in_flight_target_nodes) > 0:
+#      if not self._poll_compile_processes():
+#        return False
+#
+#    return True
