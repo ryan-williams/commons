@@ -49,7 +49,7 @@ class JarDependency(object):
     self.ext = ext
     self.url = url
     self.apidocs = apidocs
-    self.id = None
+    self.id = "%s-%s-%s" % (self.org, self.name, self.rev)
     self.test_jar = test_jar
     self._configurations = [ 'default' ]
 
@@ -103,7 +103,7 @@ class JarDependency(object):
     return not self.__eq__(other)
 
   def __repr__(self):
-    return "%s-%s-%s" % (self.org, self.name, self.rev)
+    return self.id
 
   def resolve(self):
     yield self
