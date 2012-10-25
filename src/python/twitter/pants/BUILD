@@ -30,6 +30,7 @@ python_library(
     python_requirement('mako'),
     python_requirement('markdown'),
     python_requirement('psutil'),
+    python_requirement('pydot'),
     python_requirement("pygments"),
     python_requirement("pylint", version_filter=pylint_build_filter),
     python_requirement("pytest"),
