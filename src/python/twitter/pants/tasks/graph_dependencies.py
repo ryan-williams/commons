@@ -1,7 +1,9 @@
 __author__ = 'ryan'
 
+import math
+import re
 from pydot import *
-from twitter.pants.targets import JavaLibrary, JarDependency, ScalaLibrary, JvmTarget, InternalTarget
+from twitter.pants.targets import *
 from twitter.pants.tasks import Task
 
 class GraphDependencies(Task):
@@ -23,8 +25,26 @@ class GraphDependencies(Task):
 
     targets = self.context.target_roots
 
+    def abbreviated_fs_name(target):
+      pieces = target.id.split('.')
+      if len(pieces) > 2 and pieces[-2] == pieces[-1]:
+        pieces = pieces[:-1]
+      return '.'.join(pieces).replace('src.main', '').replace('com.foursquare', '')
+
+    def num_src_files(target):
+      if isinstance(target, TargetWithSources):
+        return len(target.expand_files(False, False))
+      return 0
+
     def key_fn(target):
-      return target.id.replace('src.main', '').replace('com.foursquare', '')
+      return abbreviated_fs_name(target)
+      #return str(num_src_files(target))
+      #return target.id.replace('src.main', '').replace('com.foursquare', '')
+      #return re.sub("^src/", '', str(target.address).replace('/BUILD:', ' '))
+
+    def get_size_for_node(target):
+      num = num_src_files(target)
+      return .1 + math.sqrt(num) / 2, .1 + math.sqrt(num)/ 2
 
     def color_for_target(target):
       if isinstance(target, JavaLibrary):
@@ -44,7 +64,9 @@ class GraphDependencies(Task):
     def node_from_target(target):
       if isinstance(target, JarDependency):
         return None
-      return Node(key_fn(target), style="filled", fillcolor=color_for_target(target))
+      print "*** making node: " + key_fn(target)
+      width, height = get_size_for_node(target)
+      return Node(key_fn(target), style="filled", fillcolor=color_for_target(target), width=width, height=height)
 
     print "graphing targets: " #+ "\n\t".join([str(t) for t in targets])
     for target in targets:
