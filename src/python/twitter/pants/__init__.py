@@ -83,7 +83,8 @@ annotation_processor = AnnotationProcessor
 artifact = Artifact
 bundle = Bundle
 credentials = Credentials
-dependencies = jar_library = JarLibrary
+jar_library = JarLibrary
+dependencies = InternalTarget
 doc = Doc
 egg = PythonEgg
 exclude = Exclude
