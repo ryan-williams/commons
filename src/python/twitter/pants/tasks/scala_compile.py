@@ -35,9 +35,10 @@ from twitter.pants.targets.scala_tests import ScalaTests
 from twitter.pants.targets import resolve_target_sources
 from twitter.pants.tasks import TaskError
 from twitter.pants.tasks.binary_utils import nailgun_profile_classpath
+from twitter.pants.tasks.cache_manager import VersionedTargetSet
 from twitter.pants.tasks.jvm_compiler_dependencies import Dependencies
 from twitter.pants.tasks.nailgun_task import NailgunTask
-from twitter.pants.tasks.parallel_compile_manager import ParallelCompileManager
+from twitter.pants.python import NaiveParallelizer
 
 
 # Well known metadata file required to register scalac plugins with nsc.
@@ -87,11 +88,6 @@ class ScalaCompile(NailgunTask):
     self._parallelize_compilation = True if context.options.scala_compile_num_parallel_compiles > 0 else False
 
     self._num_parallel_compiles = context.options.scala_compile_num_parallel_compiles
-
-    if self._parallelize_compilation:
-      print "\n max num parallel compiles: %d\n" % self._num_parallel_compiles
-    else:
-      print "\n compiling in serial\n"
 
     # We use the scala_compile_color flag if it is explicitly set on the command line.
     self._color = \
@@ -158,9 +154,12 @@ class ScalaCompile(NailgunTask):
     return True
 
   def execute(self, targets):
-    self.context.log.info('\n\nscala compiling %d targets in parallel %s\n\n' % (len(targets), str(self._num_parallel_compiles)))
+    self.context.log.info(
+      'scala compiling %d targets in %s' % (
+        len(targets),
+        (("parallel (%s)" % str(self._num_parallel_compiles)) if self._parallelize_compilation else "serial")))
     for target in targets:
-      self.context.log.info("\t%s" % target.id)
+      self.context.log.debug("\t%s" % target.id)
     scala_targets = filter(ScalaCompile._has_scala_sources, targets)
     if scala_targets:
       safe_mkdir(self._depfile_dir)
@@ -183,14 +182,24 @@ class ScalaCompile(NailgunTask):
             self.post_process(vt, upstream_analysis_caches, split_artifact=False)
 
         if self._parallelize_compilation:
-          def compile_cmd(target_set):
-            return self.execute_single_compilation(target_set, cp, upstream_analysis_caches, True)
+          # TODO(ryan): should probably just make ParallelCompileManager understand VersionedTarget and
+          # VersionedTargetSet, and move this in there.
+          def versioned_target_nodes_to_versioned_target_set(versioned_target_nodes):
+            versioned_targets = [node.data for node in versioned_target_nodes]
+            return VersionedTargetSet.from_versioned_targets(versioned_targets)
 
-          def post_compile_cmd(vt):
-            if self.dry_run:
-              vt.update()
+          def compile_cmd(versioned_target_nodes):
+            return self.execute_single_compilation(
+              versioned_target_nodes_to_versioned_target_set(versioned_target_nodes),
+              cp,
+              upstream_analysis_caches,
+              True)
 
-          ParallelCompileManager(
+          def post_compile_cmd(versioned_target_nodes):
+            if not self.dry_run:
+              versioned_target_nodes_to_versioned_target_set(versioned_target_nodes).update()
+
+          NaiveParallelizer(
             self.context.log,
             invalidation_result._invalid_target_tree,
             self._num_parallel_compiles,

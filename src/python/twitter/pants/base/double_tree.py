@@ -53,21 +53,23 @@ class DoubleTree(object):
     for node in self.nodes:
       self._nodes_by_data_map[node.data] = node
 
-    self._init_parent_and_child_relationships()
-
     self._roots = set([])
     self.leaves = set([])
-    self._find_roots_and_leaves()
 
-    #[root.print_node() for root in self._roots]
     print "%d nodes:" % len(self.nodes)
     for node in self.nodes:
-      print node.data.target.id
+      print node.data.target.id,
+    print ''
+
+    self._init_parent_and_child_relationships()
+
+    self._find_roots_and_leaves()
 
     print "%d roots:" % len(self._roots)
     for root in self._roots:
       print root.data.target.id
 
+    #[root.print_node() for root in self._roots]
     print "\t init level counts"
     # Recursively initialize nodes' ancestor and descendent level counts, starting from each root node.
     [ root_node.init_ancestor_and_descendent_level_counts() for root_node in self._roots ]
@@ -119,7 +121,11 @@ class DoubleTree(object):
           original_node.children.add(child_node)
           child_node.parents.add(original_node)
         else:
-          find_children(original_node, child_data)
+          #find_children(original_node, child_data)
+          raise Exception("child_fn shouldn't yield data objects not in tree:\n %s. child of: %s. original data: %s" % (
+            str(child_data),
+            str(data),
+            str(original_node.data)))
 
     for node in self.nodes:
       find_children(node, node.data)

@@ -38,28 +38,32 @@ class VersionedTargetSet(object):
     self._cache_manager = cache_manager
     self.per_target_cache_keys = per_target_cache_keys
 
-    self.targets = targets
     self.cache_key = CacheKeyGenerator.combine_cache_keys(per_target_cache_keys)
     self.valid = not cache_manager.needs_update(self.cache_key)
+    self.targets = targets
+
+
+  @staticmethod
+  def from_versioned_targets(versioned_targets):
+    cache_manager = list(versioned_targets)[0]._cache_manager
+    targets = [ vt.target for vt in versioned_targets ]
+    cache_keys = [ vt.cache_key for vt in versioned_targets ]
+    return VersionedTargetSet(cache_manager, targets, cache_keys)
 
   def update(self):
     self._cache_manager.update(self)
     self.valid = True
 
+  def __repr__(self):
+    return "VTS(%s. %d)" % (','.join(target.id for target in self.targets), 1 if self.valid else 0)
+
 class VersionedTarget(VersionedTargetSet):
-  def __init__(self, cache_manager, target, cache_key, versioned_targets_by_target):
+  def __init__(self, cache_manager, target, cache_key):
     VersionedTargetSet.__init__(self, cache_manager, [ target ], [ cache_key ])
     self.target = target
     self.id = target.id
     self.dependencies = set([])
-    def add_deps(t):
-      if hasattr(t, 'dependencies'):
-        for dependency in t.dependencies:
-          if dependency in versioned_targets_by_target:
-            self.dependencies.add(versioned_targets_by_target[dependency])
-          else:
-            add_deps(dependency)
-    add_deps(target)
+
 
 # The result of calling check() on a CacheManager.
 # Each member is a list of VersionedTargetSet objects in topological order.
@@ -122,9 +126,8 @@ class CacheManager(object):
   def invalidate_and_break_into_parallelizable_targets(self, targets):
     all_vts = self._sort_and_validate_targets(targets)
     invalid_vts = filter(lambda vt: not vt.valid, all_vts)
-    print "making tree"
-    invalid_target_tree = DoubleTree(invalid_vts, lambda t: t.dependencies)
-    print "tree done"
+    print ("got %d invalid vts" % len(invalid_vts))
+    invalid_target_tree = DoubleTree(invalid_vts, lambda t: filter(lambda d: not d.valid, t.dependencies))
     return ParallelInvalidationResult(all_vts, invalid_vts, invalid_target_tree)
 
   def _sort_and_validate_targets(self, targets):
@@ -173,9 +176,28 @@ class CacheManager(object):
       cache_key = self._key_for(target, dependency_keys)
       id_to_hash[target.id] = cache_key.hash
 
-      versioned_target = VersionedTarget(self, target, cache_key, versioned_targets_by_target)
+      versioned_target = VersionedTarget(self, target, cache_key)
       versioned_targets.append(versioned_target)
       versioned_targets_by_target[target] = versioned_target
+
+    versioned_target_deps_by_target = {}
+
+    def get_versioned_target_deps_for_target(target):
+      deps = set([])
+      if hasattr(target, 'dependencies'):
+        for dep in target.dependencies:
+          for dependency in dep.resolve():
+            if dependency in versioned_targets_by_target:
+              deps.add(versioned_targets_by_target[dependency])
+            elif dependency in versioned_target_deps_by_target:
+              deps.update(versioned_target_deps_by_target[dependency])
+            else:
+              versioned_target_deps_by_target[dependency] = get_versioned_target_deps_for_target(dependency)
+              deps.update(versioned_target_deps_by_target[dependency])
+      return deps
+
+    for versioned_target in versioned_targets:
+      versioned_target.dependencies = get_versioned_target_deps_for_target(versioned_target.target)
 
     return versioned_targets
 
@@ -225,7 +247,7 @@ class CacheManager(object):
 
     def close_current_group():
       if len(current_group.vts) > 0:
-        new_vt = self._combine_versioned_targets(current_group.vts)
+        new_vt = VersionedTargetSet.from_versioned_targets(current_group.vts)
         res.append(new_vt)
         current_group.vts = []
         current_group.total_sources = 0
@@ -243,9 +265,6 @@ class CacheManager(object):
     close_current_group()  # Close the last group, if any.
 
     return res
-
-  def _combine_versioned_targets(self, vts):
-    return VersionedTargetSet(self, [ vt.target for vt in vts ] , [ vt.cache_key for vt in vts ])
 
   def _key_for(self, target, dependency_keys):
     def fingerprint_extra(sha):
