@@ -31,6 +31,7 @@ def resolve_target_sources(target_sources, extension):
 from twitter.pants.targets.annotation_processor import AnnotationProcessor
 from twitter.pants.targets.artifact import Artifact
 from twitter.pants.targets.credentials import Credentials
+from twitter.pants.targets.dependencies_wrapper import DependenciesWrapper
 from twitter.pants.targets.doc import Doc, Page, Wiki
 from twitter.pants.targets.exclude import Exclude
 from twitter.pants.targets.exportable_jvm_library import ExportableJvmLibrary
@@ -65,6 +66,7 @@ __all__ = [
   'Artifact',
   'Bundle',
   'Credentials',
+  'DependenciesWrapper',
   'Doc',
   'Exclude',
   'ExportableJvmLibrary',
