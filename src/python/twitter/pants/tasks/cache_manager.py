@@ -22,7 +22,7 @@ except ImportError:
 from twitter.pants.base.build_invalidator import BuildInvalidator, CacheKeyGenerator, NO_SOURCES, TARGET_SOURCES
 from twitter.pants.base.double_tree import DoubleTree
 from twitter.pants.base.target import Target
-from twitter.pants.targets import JarDependency
+from twitter.pants.targets import JarDependency, TargetWithSources
 from twitter.pants.targets.internal import InternalTarget
 
 
@@ -39,6 +39,7 @@ class VersionedTargetSet(object):
     self.per_target_cache_keys = per_target_cache_keys
 
     self.cache_key = CacheKeyGenerator.combine_cache_keys(per_target_cache_keys)
+    self.num_sources = self.cache_key.num_sources
     self.valid = not cache_manager.needs_update(self.cache_key)
     self.targets = targets
 
@@ -63,6 +64,8 @@ class VersionedTarget(VersionedTargetSet):
     self.target = target
     self.id = target.id
     self.dependencies = set([])
+    if not isinstance(target, TargetWithSources):
+      raise Exception("Making VersionedTarget for target %s that doesn't have any sources" % target.id)
 
 
 # The result of calling check() on a CacheManager.
@@ -243,7 +246,7 @@ class CacheManager(object):
 
     def add_to_current_group(vt):
       current_group.vts.append(vt)
-      current_group.total_sources += vt.cache_key.num_sources
+      current_group.total_sources += vt.num_sources
 
     def close_current_group():
       if len(current_group.vts) > 0:
