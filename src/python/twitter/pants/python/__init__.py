@@ -19,9 +19,11 @@ __author__ = 'John Sirois, Brian Wickman'
 from twitter.pants.python.python_builder import PythonBuilder
 from twitter.pants.python.python_chroot import PythonChroot
 from twitter.pants.python.naive_parallelizer import NaiveParallelizer
+from twitter.pants.python.partitioning_parallelizer import PartitioningParallelizer
 
 __all__ = [
   'NaiveParallelizer',
+  'PartitioningParallelizer',
   'PythonBuilder',
   'PythonChroot',
 ]

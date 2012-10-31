@@ -4,16 +4,16 @@ __author__ = 'ryan'
 class DoubleTreeNode(object):
   def __init__(self, data):
     self.data = data
-    self.parents = set([])
-    self.children = set([])
-
-  def print_node(self, indent = ''):
-    print "%s*%s %s" % ("ROOT " if indent == '' else '', indent, self.data.target.id)
-    [child.print_node(indent + '  ') for child in self.children]
+    self.parents = set()
+    self.children = set()
+    self.invalidated_children = set()
 
   # TODO(ryan): remove
   def __repr__(self):
     return self.data.id
+
+  def as_str(self):
+    return "%s -> [%s][%s]" % (self.data.id, ','.join([child.data.id for child in self.children]), ','.join([c.data.id for c in self.invalidated_children]))
 
 class DoubleTree(object):
   def __init__(self, objects, child_fn):
@@ -39,8 +39,26 @@ class DoubleTree(object):
     print "%d roots:" % len(self._roots)
     for root in self._roots:
       print root.data.id
+    print ''
+
+    for node in self.nodes:
+      print "%s:" % node.data.id
+      print "\tchildren (%d):" % len(node.children)
+      for child in node.children:
+          print "\t\t" + child.data.id
+      print "\tparents (%d):" % len(node.parents)
+      for parent in node.parents:
+          print "\t\t" + parent.data.id
+      print ''
+
+    self.print_tree()
 
     print "done!"
+
+  def print_tree(self):
+    for node in self.nodes:
+      print """deps["%s"] = {"num": %d, "children": [%s]}""" % (node.data.id, node.data.num_sources, ','.join(['"%s"' % child.data.id for child in node.children]))
+    print ''
 
   def lookup(self, data):
     if data in self._nodes_by_data_map:
@@ -74,18 +92,21 @@ class DoubleTree(object):
       if len(node.children) == 0:
         self.leaves.add(node)
 
-  def remove_leaf(self, node):
+  def invalidate_leaf(self, node):
     if node not in self.leaves:
       raise Exception("remove_leaf called on non-leaf node: %s" % node.data.id)
     new_leaves = set([])
     for parent_node in node.parents:
       parent_node.children.remove(node)
+      parent_node.invalidated_children.add(node)
       if len(parent_node.children) == 0:
         self.leaves.add(parent_node)
         new_leaves.add(parent_node)
+
+    #print "invalidating leaf %s. new leaves: %s" % (node.data.id, ','.join([t.as_str() for t in new_leaves]))
     return new_leaves
 
-  def add_leaf(self, node):
+  def restore_leaf(self, node):
     if len(node.children) != 0:
       raise Exception("add_leaf called on child-having node %s" % node.data.id)
     for parent_node in node.parents:
@@ -94,4 +115,5 @@ class DoubleTree(object):
           raise Exception("add_leaf called on %s. childless parent %s not in leaves array" % (node.data.id, parent_node.data.id))
         self.leaves.remove(parent_node)
       parent_node.children.add(node)
+      parent_node.invalidated_children.remove(node)
     self.leaves.add(node)

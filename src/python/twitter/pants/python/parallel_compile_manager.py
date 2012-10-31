@@ -21,6 +21,10 @@ class ParallelCompileManager(object):
     # Tree nodes that are currently compiling
     self._in_flight_target_nodes = set([])
 
+    # Set of nodes that can currently be compiled (i.e. that don't depend on anything that hasn't already been
+    # compiled). This should always equal self._tree.leaves - self._in_flight_target_nodes
+    self._frontier_nodes = set([leaf for leaf in invalid_target_tree.leaves])
+
     # Processes that are currently compiling
     self._compile_processes = set([])
 
@@ -30,22 +34,34 @@ class ParallelCompileManager(object):
     self._processed_nodes = []
 
 
-  def _get_next_node_set_to_compile(self):
+  def _get_next_node_sets_to_compile(self, num_compile_workers_available):
     "Abstract: subclasses implement different strategies for selecting next nodes to be compiled"
 
-  def _handle_processed_node_set(self, target_node_set, success):
-    "Abstract: process some nodes that have just finished being compiled"
-    if success and self._post_compile_cmd:
+  def _handle_processed_node_set(self, target_node_set, compiled_successfully):
+    "Add a node's parents to the frontier set, excepting any that are also ancestors of another of its parents."
+    if compiled_successfully and self._post_compile_cmd:
       self._post_compile_cmd(target_node_set)
 
     self._processed_nodes += target_node_set
     print "Processed %d out of %d targets" % (len(self._processed_nodes), len(self._tree.nodes))
     print "In flight (%d): {%s}" % (len(self._in_flight_target_nodes), ','.join([t.data.id for t in self._in_flight_target_nodes]))
+    print "Frontier (%d): {%s}" % (len(self._frontier_nodes), ','.join(t.data.id for t in self._frontier_nodes))
+
+    for target_node in target_node_set:
+      new_leaves = self._tree.remove_leaf(target_node)
+
+      print "\tadding newly eligible parents of %s:\n" % target_node.data.target.id
+      for new_leaf in new_leaves:
+        print "\t%s" % new_leaf.data.target.id
+
+      self._frontier_nodes.update(new_leaves)
+
 
   def _spawn_target_compile(self, target_node_set):
     "Start compiling a given VersionedTarget"
     self._logger.info("\n*** Spawning compile: %s\n" % str(target_node_set))
     compile_process = self._compile_cmd(target_node_set)
+    self._frontier_nodes -= target_node_set
     if compile_process:
       self._compiling_nodes_by_process[compile_process] = target_node_set
       self._compile_processes.add(compile_process)
@@ -53,7 +69,7 @@ class ParallelCompileManager(object):
     else:
       # NOTE(ryan): this can happen if the targets had no sources, therefore compile_cmd did not result in a process
       # being spawned. In that case, mark these nodes as having been "processed".
-      self._handle_processed_node_set(target_node_set, True)
+      self._handle_processed_node_set(target_node_set, False)
 
   def _handle_compilation_finished(self, compile_process, success):
     "Clean up a finished compilation process."
@@ -99,14 +115,14 @@ class ParallelCompileManager(object):
   def _loop_once(self):
     "Broke this out as a separate method for ease of testing"
 
-    while len(self._compile_processes) < self._max_num_parallel_compiles:
-      # We have room to spawn another compile
-      next_target_node_set = self._get_next_node_set_to_compile()
-      if next_target_node_set:
-        self._spawn_target_compile(next_target_node_set)
-      else:
-        break
+    num_compile_workers_available = self._max_num_parallel_compiles - len(self._compile_processes)
 
+    # NOTE(ryan): a good optimization here might be to start computing what the next-compiled partition should be, while we wait for in-flight compiles to finish.
+    if num_compile_workers_available > 0 and len(self._frontier_nodes) > 0:
+      # We have room to spawn more compiles
+      next_target_node_sets = self._get_next_node_sets_to_compile(num_compile_workers_available)
+      for next_target_node_set in next_target_node_sets:
+        self._spawn_target_compile(next_target_node_set)
 
     if not self._poll_compile_processes():
       return False

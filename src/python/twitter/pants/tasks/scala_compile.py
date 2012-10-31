@@ -39,6 +39,7 @@ from twitter.pants.tasks.cache_manager import VersionedTargetSet
 from twitter.pants.tasks.jvm_compiler_dependencies import Dependencies
 from twitter.pants.tasks.nailgun_task import NailgunTask
 from twitter.pants.python import NaiveParallelizer
+from twitter.pants.python import PartitioningParallelizer
 
 
 # Well known metadata file required to register scalac plugins with nsc.
@@ -68,9 +69,13 @@ class ScalaCompile(NailgunTask):
       help="Roughly how many source files to attempt to compile together. Set to a large number to compile " \
            "all sources together. Set this to 0 to compile target-by-target. Default is set in pants.ini.")
 
-    option_group.add_option(mkflag("num-parallel-compiles"), dest="scala_compile_num_parallel_compiles",
+    option_group.add_option(mkflag("max-parallel"), dest="scala_compile_max_num_parallel_compiles",
       action="store", type="int", default=0,
       help="Use up to this many parallel invocations of Zinc while compiling scala files.")
+
+    option_group.add_option(mkflag("parallelization-strategy"), dest="scala_compile_parallelization_strategy",
+      action="store", type="string", default="partitioned",
+      help="'partitioned' (default) for partitioned parallel compiling. 'naive' for naive.")
 
     option_group.add_option(mkflag("color"), mkflag("color", negate=True),
                             dest="scala_compile_color",
@@ -85,9 +90,11 @@ class ScalaCompile(NailgunTask):
       if context.options.scala_compile_partition_size_hint != -1 else \
       context.config.getint('scala-compile', 'partition_size_hint')
 
-    self._parallelize_compilation = True if context.options.scala_compile_num_parallel_compiles > 0 else False
+    self._parallelize_compilation = True if context.options.scala_compile_max_num_parallel_compiles > 0 else False
 
-    self._num_parallel_compiles = context.options.scala_compile_num_parallel_compiles
+    self._num_parallel_compiles = context.options.scala_compile_max_num_parallel_compiles
+
+    self._parallelization_strategy = context.options.scala_compile_parallelization_strategy
 
     # We use the scala_compile_color flag if it is explicitly set on the command line.
     self._color = \
@@ -188,23 +195,44 @@ class ScalaCompile(NailgunTask):
             versioned_targets = [node.data for node in versioned_target_nodes]
             return VersionedTargetSet.from_versioned_targets(versioned_targets)
 
-          def compile_cmd(versioned_target_nodes):
-            return self.execute_single_compilation(
-              versioned_target_nodes_to_versioned_target_set(versioned_target_nodes),
-              cp,
-              upstream_analysis_caches,
-              True)
+          def live_compile_cmd(versioned_target_nodes):
+            if len(versioned_target_nodes) > 0:
+              return self.execute_single_compilation(
+                versioned_target_nodes_to_versioned_target_set(versioned_target_nodes),
+                cp,
+                upstream_analysis_caches,
+                True)
+            else:
+              return None
 
-          def post_compile_cmd(versioned_target_nodes):
-            if not self.dry_run:
+          def live_post_compile_cmd(versioned_target_nodes):
+            if not self.dry_run and len(versioned_target_nodes) > 0:
               versioned_target_nodes_to_versioned_target_set(versioned_target_nodes).update()
 
-          NaiveParallelizer(
-            self.context.log,
-            invalidation_result._invalid_target_tree,
-            self._num_parallel_compiles,
-            compile_cmd,
-            post_compile_cmd).execute()
+          def dry_run_compile_cmd(versioned_target_nodes):
+            print "dry run compiling nodes: {%s}" % ','.join([t.data.id for t in versioned_target_nodes])
+            return None
+
+          compile_cmd = dry_run_compile_cmd if self.dry_run else live_compile_cmd
+          post_compile_cmd = None if self.dry_run else live_post_compile_cmd
+
+          if (self._parallelization_strategy == 'naive'):
+            print "Using naive parallelizer"
+            NaiveParallelizer(
+              self.context.log,
+              invalidation_result._invalid_target_tree,
+              self._num_parallel_compiles,
+              compile_cmd,
+              post_compile_cmd).execute()
+          else:
+            print "Using partitioned parallelizer (hint: %d)" % self._partition_size_hint
+            PartitioningParallelizer(
+              self.context.log,
+              invalidation_result._invalid_target_tree,
+              self._num_parallel_compiles,
+              self._partition_size_hint,
+              compile_cmd,
+              post_compile_cmd).execute()
         else:
           for vt in invalidation_result.invalid_vts_partitioned:
             # Compile, using partitions for efficiency.
