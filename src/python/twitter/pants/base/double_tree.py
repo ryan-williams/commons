@@ -6,35 +6,6 @@ class DoubleTreeNode(object):
     self.data = data
     self.parents = set([])
     self.children = set([])
-    self.ancestor_levels = 0
-    self.descendent_levels = 0
-
-  def register_parent(self, parent):
-    self.parents.add(parent)
-    self.ancestor_levels = max(self.ancestor_levels, 1 + parent.ancestor_levels)
-
-  def register_child(self, child):
-    self.children.add(child)
-    self.descendent_levels = max(self.descendent_levels, 1 + child.descendent_levels)
-
-  def init_ancestor_and_descendent_level_counts(self, indent = ''):
-    visited = set([])
-    def _init_ancestor_and_descendent_level_counts(node, indent):
-      if node.data.target.id in visited:
-        return
-      #print "%s%s" % (indent, node.data.target.id)
-      visited.add(node.data.target.id)
-      node.ancestor_levels = (
-        0 if len(node.parents) == 0 else
-        max(node.ancestor_levels, 1 + max([parent.ancestor_levels for parent in node.parents])))
-
-      for child in node.children:
-        _init_ancestor_and_descendent_level_counts(child, indent + '  ')
-      node.descendent_levels = (
-        0 if len(node.children) == 0 else
-        max(node.descendent_levels, 1 + max([child.descendent_levels for child in node.children]))
-        )
-    _init_ancestor_and_descendent_level_counts(self, indent)
 
   def print_node(self, indent = ''):
     print "%s*%s %s" % ("ROOT " if indent == '' else '', indent, self.data.target.id)
@@ -58,7 +29,7 @@ class DoubleTree(object):
 
     print "%d nodes:" % len(self.nodes)
     for node in self.nodes:
-      print node.data.target.id,
+      print node.data.id,
     print ''
 
     self._init_parent_and_child_relationships()
@@ -67,42 +38,7 @@ class DoubleTree(object):
 
     print "%d roots:" % len(self._roots)
     for root in self._roots:
-      print root.data.target.id
-
-    #[root.print_node() for root in self._roots]
-    print "\t init level counts"
-    # Recursively initialize nodes' ancestor and descendent level counts, starting from each root node.
-    [ root_node.init_ancestor_and_descendent_level_counts() for root_node in self._roots ]
-
-    above_by_level = {}
-    below_by_level = {}
-    for node in self.nodes:
-      if node.ancestor_levels not in above_by_level:
-        above_by_level[node.ancestor_levels] = []
-      above_by_level[node.ancestor_levels].append(node)
-
-      if node.descendent_levels not in below_by_level:
-        below_by_level[node.descendent_levels] = []
-      below_by_level[node.descendent_levels].append(node)
-
-      print "%d\t%d\t%s:" % (node.ancestor_levels, node.descendent_levels, node.data.target.id)
-      print "\tchildren (%d):" % len(node.children)
-      for child in node.children:
-        print "\t\t" + child.data.target.id
-      print "\tparents (%d):" % len(node.parents)
-      for parent in node.parents:
-        print "\t\t" + parent.data.target.id
-      print ''
-
-    print "ancestor levels:"
-    for num in above_by_level:
-      print "\t%d: %d" % (num, len(above_by_level[num]))
-    print ''
-
-    print "descendent levels:"
-    for num in below_by_level:
-      print "\t%d: %d" % (num, len(below_by_level[num]))
-    print ''
+      print root.data.id
 
     print "done!"
 
@@ -138,3 +74,24 @@ class DoubleTree(object):
       if len(node.children) == 0:
         self.leaves.add(node)
 
+  def remove_leaf(self, node):
+    if node not in self.leaves:
+      raise Exception("remove_leaf called on non-leaf node: %s" % node.data.id)
+    new_leaves = set([])
+    for parent_node in node.parents:
+      parent_node.children.remove(node)
+      if len(parent_node.children) == 0:
+        self.leaves.add(parent_node)
+        new_leaves.add(parent_node)
+    return new_leaves
+
+  def add_leaf(self, node):
+    if len(node.children) != 0:
+      raise Exception("add_leaf called on child-having node %s" % node.data.id)
+    for parent_node in node.parents:
+      if len(parent_node.children) == 0:
+        if parent_node not in self.leaves:
+          raise Exception("add_leaf called on %s. childless parent %s not in leaves array" % (node.data.id, parent_node.data.id))
+        self.leaves.remove(parent_node)
+      parent_node.children.add(node)
+    self.leaves.add(node)
