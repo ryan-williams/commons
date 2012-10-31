@@ -1,32 +1,13 @@
 __author__ = 'ryan'
 
-from mock import Mock
 import unittest
 
 from twitter.pants.tasks import ParallelCompileManager
-from twitter.pants.tasks.cache_manager import VersionedTarget
-from twitter.pants.test import MockTarget
+from twitter.pants.test import MockLogger, MockProcess, MockTarget
 from twitter.pants.base import DoubleTree
 
 
-class MockProcess(object):
-
-  def __init__(self, target, return_vals):
-    self.target = target
-    self.return_vals = return_vals
-
-  def poll(self):
-    return self.return_vals.pop()
-
-
 class ParallelCompileManagerTest(unittest.TestCase):
-
-  def setUp(self):
-    def p(x):
-      print str(x)
-
-    attrs = {'info.side_effect': p}
-    self.logger = Mock(**attrs)
 
   def test_parallel_compile(self):
 
@@ -43,16 +24,9 @@ class ParallelCompileManagerTest(unittest.TestCase):
     def add_mock_subprocess_for_target(target, return_vals):
       mock_subprocesses_by_target[target] = MockProcess(target, return_vals)
 
-    tree = DoubleTree([a, b, c, d, e, f, g], lambda x: x.dependencies)
-
+    # TODO(ryan): abstract these out
     target_compiles_spawned = []
     target_compiles_finished = []
-
-    add_mock_subprocess_for_target(a, [0, None, None, None])
-    add_mock_subprocess_for_target(b, [0, None, None, None])
-    add_mock_subprocess_for_target(d, [0, None, None, None])
-    add_mock_subprocess_for_target(e, [0, None, None, None])
-    add_mock_subprocess_for_target(f, [0, None, None, None])
 
     def cmd(target):
       target_compiles_spawned.append(target)
@@ -61,7 +35,15 @@ class ParallelCompileManagerTest(unittest.TestCase):
     def post_compile_cmd(target):
       target_compiles_finished.append(target)
 
-    pcm = ParallelCompileManager(self.logger, tree, 4, cmd, post_compile_cmd)
+    tree = DoubleTree([a, b, c, d, e, f, g], lambda x: x.dependencies)
+
+    add_mock_subprocess_for_target(a, [0, None, None, None])
+    add_mock_subprocess_for_target(b, [0, None, None, None])
+    add_mock_subprocess_for_target(d, [0, None, None, None])
+    add_mock_subprocess_for_target(e, [0, None, None, None])
+    add_mock_subprocess_for_target(f, [0, None, None, None])
+
+    pcm = ParallelCompileManager(MockLogger(), tree, 4, cmd, post_compile_cmd)
 
     self.assertEquals(len(pcm._in_flight_target_nodes), 0)
     self.assertEquals(len(pcm._compile_processes), 0)
