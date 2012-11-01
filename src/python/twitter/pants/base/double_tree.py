@@ -84,6 +84,7 @@ class DoubleTree(object):
     for node in self.nodes:
       find_children(node, node.data)
 
+
   def _find_roots_and_leaves(self):
     print "\t _find_roots_and_leaves"
     for node in self.nodes:
@@ -92,10 +93,24 @@ class DoubleTree(object):
       if len(node.children) == 0:
         self.leaves.add(node)
 
+
+  def remove_nodes(self, nodes):
+    new_leaves = set()
+    for node in nodes:
+      for parent_node in node.parents:
+        if parent_node in nodes:
+          continue
+        parent_node.children.remove(node)
+        if len(parent_node.children) == 0:
+          self.leaves.add(parent_node)
+          new_leaves.add(parent_node)
+    return new_leaves
+
+
   def invalidate_leaf(self, node):
     if node not in self.leaves:
       raise Exception("remove_leaf called on non-leaf node: %s" % node.data.id)
-    new_leaves = set([])
+    new_leaves = set()
     for parent_node in node.parents:
       parent_node.children.remove(node)
       parent_node.invalidated_children.add(node)
@@ -105,6 +120,7 @@ class DoubleTree(object):
 
     #print "invalidating leaf %s. new leaves: %s" % (node.data.id, ','.join([t.as_str() for t in new_leaves]))
     return new_leaves
+
 
   def restore_leaf(self, node):
     if len(node.children) != 0:
