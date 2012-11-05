@@ -196,18 +196,17 @@ class ScalaCompile(NailgunTask):
             return VersionedTargetSet.from_versioned_targets(versioned_targets)
 
           def live_compile_cmd(versioned_target_nodes):
-            if len(versioned_target_nodes) > 0:
-              return self.execute_single_compilation(
-                versioned_target_nodes_to_versioned_target_set(versioned_target_nodes),
-                cp,
-                upstream_analysis_caches,
-                True)
-            else:
-              return None
+            return self.execute_single_compilation(
+              versioned_target_nodes_to_versioned_target_set(versioned_target_nodes),
+              cp,
+              upstream_analysis_caches,
+              True)
 
           def live_post_compile_cmd(versioned_target_nodes):
-            if not self.dry_run and len(versioned_target_nodes) > 0:
-              versioned_target_nodes_to_versioned_target_set(versioned_target_nodes).update()
+            if not self.dry_run:
+              vts = versioned_target_nodes_to_versioned_target_set(versioned_target_nodes)
+              self.post_process(vts, upstream_analysis_caches, split_artifact=True)
+              vts.update()
 
           def dry_run_compile_cmd(versioned_target_nodes):
             print "dry run compiling nodes: {%s}" % ','.join([t.data.id for t in versioned_target_nodes])
@@ -275,7 +274,11 @@ class ScalaCompile(NailgunTask):
                 output_dir, analysis_cache, upstream_analysis_caches, depfile, run_async=run_async)
               if result != 0 and not run_async:
                 raise TaskError('%s returned %d' % (self._main, result))
-    self.post_process(versioned_target_set, upstream_analysis_caches, split_artifact=True)
+    if not run_async:
+      # If we're running asynchronously, the compile has just been spawned and is (in all likelihood) still running). Worry about calling this later.
+      # TODO(ryan): incorporate this into a more unified "post-compile-command", possibly also encompassing the update()
+      # logic handled in the Parallelizer's post_compile_cmd above.
+      self.post_process(versioned_target_set, upstream_analysis_caches, split_artifact=True)
     return result
 
   # Post-processing steps that must happen even for valid targets.

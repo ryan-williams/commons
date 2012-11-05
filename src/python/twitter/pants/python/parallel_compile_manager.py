@@ -1,5 +1,6 @@
 __author__ = 'ryan'
 
+from twitter.pants.tasks import TaskError
 
 class ParallelCompileError(Exception):
   "Error that is thrown if something goes wrong in the ParallelCompileManager"
@@ -23,6 +24,7 @@ class ParallelCompileManager(object):
 
     # Set of nodes that can currently be compiled (i.e. that don't depend on anything that hasn't already been
     # compiled). This should always equal self._tree.leaves - self._in_flight_target_nodes
+    # TODO(ryan): this may be unnecessary.. can just use self._tree.leaves instead?
     self._frontier_nodes = set([leaf for leaf in invalid_target_tree.leaves])
 
     # Processes that are currently compiling
@@ -33,32 +35,34 @@ class ParallelCompileManager(object):
 
     self._processed_nodes = []
 
+    self._failed_compiles = []
+
 
   def _get_next_node_sets_to_compile(self, num_compile_workers_available):
     "Abstract: subclasses implement different strategies for selecting next nodes to be compiled"
 
-  def _handle_processed_node_set(self, target_node_set, compiled_successfully):
+  def _handle_processed_node_set(self, target_node_set, was_compiled, was_successful):
     "Add a node's parents to the frontier set, excepting any that are also ancestors of another of its parents."
-    if compiled_successfully and self._post_compile_cmd:
+    if was_compiled and was_successful and self._post_compile_cmd:
+      print "running post-compile-cmd on set {%s}" % ','.join([str(t) for t in target_node_set])
       self._post_compile_cmd(target_node_set)
+
+    if was_compiled and not was_successful:
+      self._failed_compiles.append(target_node_set)
 
     self._processed_nodes += target_node_set
     print "Processed %d out of %d targets" % (len(self._processed_nodes), len(self._tree.nodes))
     print "In flight (%d): {%s}" % (len(self._in_flight_target_nodes), ','.join([t.data.id for t in self._in_flight_target_nodes]))
     print "Frontier (%d): {%s}" % (len(self._frontier_nodes), ','.join(t.data.id for t in self._frontier_nodes))
 
-    for target_node in target_node_set:
-      new_leaves = self._tree.remove_leaf(target_node)
-
-      print "\tadding newly eligible parents of %s:\n" % target_node.data.target.id
-      for new_leaf in new_leaves:
-        print "\t%s" % new_leaf.data.target.id
-
-      self._frontier_nodes.update(new_leaves)
+    new_leaves = self._tree.remove_nodes(target_node_set)
+    self._frontier_nodes.update(new_leaves)
 
 
   def _spawn_target_compile(self, target_node_set):
     "Start compiling a given VersionedTarget"
+    if len(target_node_set) == 0:
+      return
     self._logger.info("\n*** Spawning compile: %s\n" % str(target_node_set))
     compile_process = self._compile_cmd(target_node_set)
     self._frontier_nodes -= target_node_set
@@ -69,12 +73,17 @@ class ParallelCompileManager(object):
     else:
       # NOTE(ryan): this can happen if the targets had no sources, therefore compile_cmd did not result in a process
       # being spawned. In that case, mark these nodes as having been "processed".
-      self._handle_processed_node_set(target_node_set, False)
+      self._handle_processed_node_set(target_node_set, False, True)
 
-  def _handle_compilation_finished(self, compile_process, success):
+  def _handle_compilation_finished(self, compile_process, return_value):
     "Clean up a finished compilation process."
-    self._logger.info(
-      "\n*** Finished compiling: {%s}\n" % ','.join(node.data.id for node in self._compiling_nodes_by_process[compile_process]))
+    if return_value == 0:
+      self._logger.info(
+        "\n*** Finished compiling: {%s}\n" % (','.join(node.data.id for node in self._compiling_nodes_by_process[compile_process])))
+    else:
+      self._logger.info(
+        "\n*** Failed compiling (%d): {%s}\n" % (return_value, ','.join(node.data.id for node in self._compiling_nodes_by_process[compile_process])))
+
     self._compile_processes.remove(compile_process)
 
     target_node_set = self._compiling_nodes_by_process[compile_process]
@@ -82,26 +91,24 @@ class ParallelCompileManager(object):
 
     self._in_flight_target_nodes -= (target_node_set)
 
-    self._handle_processed_node_set(target_node_set, success)
+    self._handle_processed_node_set(target_node_set, True, return_value == 0)
 
 
   def _poll_compile_processes(self):
     "Clean up any compiles that have finished. If any have failed, kill all others and return."
-    finished_compiles = []
+    return_values = {}
     found_failure = False
     for compile_process in self._compile_processes:
       poll_value = compile_process.poll()
       if poll_value != None:
-        finished_compiles.append(compile_process)
+        return_values[compile_process] = poll_value
         if poll_value != 0:
-          # If a compile fails, kill the others and return
-          # TODO(ryan): check whether early kills work, particularly before finished compiles are removed.
-          # self._kill_running_compiles()
           found_failure = True
 
     # Do this outside the loop so as to not change the size of the set the loop is iterating over
     # (self._compiling_processes)
-    [self._handle_compilation_finished(compile_process, found_failure) for compile_process in finished_compiles]
+    for compile_process, return_value in return_values.iteritems():
+      self._handle_compilation_finished(compile_process, return_value)
 
     return not found_failure
 
@@ -140,7 +147,7 @@ class ParallelCompileManager(object):
         break
 
     print "\n%s after compiling %d targets out of %d:" % (
-      "Nothing left to spawn" if len(self._processed_nodes) == num_nodes else "Caught failure",
+      "Nothing left to spawn" if len(self._processed_nodes) == num_nodes and len(self._failed_compiles) == 0 else "Caught failure",
       len(self._processed_nodes),
       len(self._tree.nodes))
     for node in self._processed_nodes:
@@ -157,6 +164,12 @@ class ParallelCompileManager(object):
     for compile_process in self._compile_processes:
       compile_process.wait()
       if compile_process.returncode != 0:
+        target_node_set = self._compiling_nodes_by_process(compile_process)
+        print "Caught compile failure: %s" % ','.join([str(t) for t in target_node_set])
         success = False
+        self._failed_compiles.append(target_node_set)
+
+    if len(self._failed_compiles) > 0:
+      raise TaskError("Failed compiles:\n%s" % "\n\t".join([str(t) for t in self._failed_compiles]))
 
     return success
