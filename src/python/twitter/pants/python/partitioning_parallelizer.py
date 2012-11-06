@@ -3,89 +3,7 @@ __author__ = 'ryan'
 import copy
 
 from naive_parallelizer import NaiveParallelizer
-
-class CompileTargetSet(object):
-  def __init__(self, sets):
-    self.num_sources = 0
-    self.targets = set([])
-    self.sets = sets
-
-  def add_target(self, target):
-    if target in self.targets:
-      raise Exception(
-        "Attempting to add target %s to target set {%s}" % (target.id, ','.join([t.id for t in self.targets])))
-    self.targets.add(target)
-    self.num_sources += target.num_sources
-    self.sets.handle_target_added(target)
-
-  def remove_target(self, target):
-    if target not in self.targets:
-      raise Exception(
-      "Attempting to remove target %s from target set {%s}" % (target.id, ','.join([t.id for t in self.targets])))
-    self.targets.remove(target)
-    self.num_sources -= target.num_sources
-    self.sets.handle_target_removed(target)
-
-  def __repr__(self):
-    return "CTS(%d%s%s)" % (self.num_sources, ": " if len(self.targets) > 0 else '', ','.join([t.id for t in self.targets]))
-
-
-class CompileTargetSets(object):
-  def __init__(self, num_sets_to_init):
-    if num_sets_to_init <= 0:
-      raise Exception("CompileTargetSets must init a positive number of sets. Passed %d" % num_sets_to_init)
-    self.sets = []
-    for i in range(num_sets_to_init):
-      self.sets.append(CompileTargetSet(self))
-    self.num_sets = num_sets_to_init
-    self.total_num_sources = 0
-    self.num_targets = 0
-    self.max_num_sources = 0
-    self.min_num_sources = 0
-
-  def differential(self):
-    return self.max_num_sources - self.min_num_sources
-
-  def handle_target_added(self, target):
-    self.total_num_sources += target.num_sources
-    self.num_targets += 1
-    self.max_num_sources = max([t.num_sources for t in self.sets])
-    self.min_num_sources = min([t.num_sources for t in self.sets])
-
-  def handle_target_removed(self, target):
-    self.total_num_sources -= target.num_sources
-    self.num_targets -= 1
-    self.max_num_sources = max([t.num_sources for t in self.sets])
-    self.min_num_sources = min([t.num_sources for t in self.sets])
-
-  def __gt__(self, other):
-    if not other:
-      raise Exception("CompileTargetSets.__gt__ called with RHS of None")
-    return (self.total_num_sources > other.total_num_sources or
-            (self.total_num_sources == other.total_num_sources and
-             self.differential() < other.differential()))
-
-  def __lt__(self, other):
-    if not other:
-      raise Exception("CompileTargetSets.__lt__ called with RHS of None")
-    return (self.total_num_sources < other.total_num_sources or
-            (self.total_num_sources == other.total_num_sources and
-             self.differential() > other.differential()))
-
-  def __eq__(self, other):
-    return self.total_num_sources == other.total_num_sources and self.differential() == other.differential()
-
-  def __repr__(self):
-    return "Sets(%d: {%s}, %d srcs, %d diff)" % (self.num_sets, ','.join([str(t) for t in self.sets]), self.total_num_sources, self.differential())
-
-  # TODO(ryan): push this down to CompileTargetSet (or Target?)
-  def __deepcopy__(self, memo):
-    newone = CompileTargetSets(self.num_sets)
-    for i in range(newone.num_sets):
-      for target in self.sets[i].targets:
-        newone.sets[i].add_target(target)
-    return newone
-
+from target_sets import TargetSets
 
 class PartitioningParallelizer(NaiveParallelizer):
   "This parallelizer works through a queue of currently eligible-to-build targets, but chunks multiple targets together in each compiler invocation, attempting to reach a number of sources per compile specified by a flag."
@@ -174,7 +92,7 @@ class PartitioningParallelizer(NaiveParallelizer):
     print "**_get_next_node_sets_to_compile (%d)" % num_compile_workers_available
     self._tree.print_tree()
 
-    best_sets = self._find_best_node_sets(CompileTargetSets(num_compile_workers_available))
+    best_sets = self._find_best_node_sets(TargetSets(num_compile_workers_available))
     best_node_sets = [set([self._tree._nodes_by_data_map[t] for t in target_set.targets]) for target_set in best_sets.sets]
     print "..got: %s" % str(best_sets)
     return best_node_sets
