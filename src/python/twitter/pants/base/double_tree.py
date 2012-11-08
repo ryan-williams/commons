@@ -8,6 +8,10 @@ class DoubleTreeNode(object):
     self.children = set()
     self.invalidated_children = set()
 
+    self.descendants = set()
+    self.ancestors = set()
+    self.independents = set()
+
   # TODO(ryan): remove
   def __repr__(self):
     return self.data.id
@@ -35,6 +39,8 @@ class DoubleTree(object):
     self._init_parent_and_child_relationships()
 
     self._find_roots_and_leaves()
+
+    self._init_ancestor_and_dependent_relationships()
 
     print "%d roots:" % len(self._roots)
     for root in self._roots:
@@ -69,13 +75,11 @@ class DoubleTree(object):
     print "\t _init_parent_and_child_relationships"
     def find_children(original_node, data):
       for child_data in self._child_fn(data):
-        # TODO(ryan): this trick may not be necessary since it's also done in VersionedTarget.
         if child_data in self._nodes_by_data_map:
           child_node = self._nodes_by_data_map[child_data]
           original_node.children.add(child_node)
           child_node.parents.add(original_node)
         else:
-          #find_children(original_node, child_data)
           raise Exception("child_fn shouldn't yield data objects not in tree:\n %s. child of: %s. original data: %s" % (
             str(child_data),
             str(data),
@@ -83,6 +87,37 @@ class DoubleTree(object):
 
     for node in self.nodes:
       find_children(node, node.data)
+
+
+  def _init_ancestor_and_dependent_relationships(self):
+    print "\t _init_ancestor_and_dependent_relationships"
+
+    if not self._roots and self.nodes:
+      raise Exception("Non-empty tree calling _init_ancestor_and_dependent_relationships before initializing roots")
+
+    def init_descendants_for_node(node):
+      if node.descendants:
+        return node.descendants
+
+      node.descendants.update(node.children)
+      for child in node.children:
+        init_descendants_for_node(child)
+        node.descendants.update(child.descendants)
+
+    map(init_descendants_for_node, self._roots)
+
+    for node in self.nodes:
+      for descendant in node.descendants:
+        descendant.ancestors.add(node)
+
+    for node1 in self.nodes:
+      for node2 in self.nodes:
+        if (not node1.descendants & node2.descendants and
+            node1 != node2 and
+            node1 not in node2.descendants and
+            node2 not in node1.descendants):
+          node1.independents.add(node2)
+          node2.independents.add(node1)
 
 
   def _find_roots_and_leaves(self):

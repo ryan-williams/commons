@@ -8,12 +8,18 @@ from twitter.pants.test import MockTarget
 
 class DoubleTreeTest(unittest.TestCase):
 
-  def check_tree_node(self, node, data, ancestor_levels, descendent_levels, children, parents):
+  def check_tree_node(self, tree, data, children, parents, descendants = None, ancestors = None, independents = None):
+    node = tree.lookup(data)
+
     self.assertEquals(node.data, data)
-    self.assertEquals(node.ancestor_levels, ancestor_levels)
-    self.assertEquals(node.descendent_levels, descendent_levels)
-    self.assertEquals(set(node.children), set(children))
-    self.assertEquals(set(node.parents), set(parents))
+    self.assertEquals(node.children, set(map(tree.lookup, children)))
+    self.assertEquals(node.parents, set(map(tree.lookup, parents)))
+    if descendants:
+      self.assertEquals(node.descendants, set(map(tree.lookup, descendants)))
+    if ancestors:
+      self.assertEquals(node.ancestors, set(map(tree.lookup, ancestors)))
+    if independents:
+      self.assertEquals(node.independents, set(map(tree.lookup, independents)))
 
   def test_simple_tree(self):
     a = MockTarget('a')
@@ -23,28 +29,23 @@ class DoubleTreeTest(unittest.TestCase):
     e = MockTarget('e', [d])
 
     def test_tree(tree):
-      A = tree.lookup(a)
-      B = tree.lookup(b)
-      C = tree.lookup(c)
-      D = tree.lookup(d)
-      E = tree.lookup(e)
+      self.assertEquals(tree._roots, set([tree.lookup(e)]))
+      self.assertEquals(tree.leaves, set([tree.lookup(a)]))
 
-      self.assertEquals(tree._roots, set([E]))
-      self.assertEquals(tree.leaves, set([A]))
+      self.check_tree_node(tree, e, [d], [], [a, b, c, d], [], [])
+      self.check_tree_node(tree, d, [a, c], [e], [a, b, c], [e], [])
+      self.check_tree_node(tree, c, [b], [d], [a,b], [d,e], [])
+      self.check_tree_node(tree, b, [a], [c], [a], [c,d,e], [])
+      self.check_tree_node(tree, a, [], [b, d], [], [b,c,d,e], [])
 
-      self.check_tree_node(E, e, 0, 4, [ D ], [])
-      self.check_tree_node(D, d, 1, 3, [ A, C ], [ E ])
-      self.check_tree_node(C, c, 2, 2, [ B ], [ D ])
-      self.check_tree_node(B, b, 3, 1, [ A ], [ C ])
-      self.check_tree_node(A, a, 4, 0, [], [ B, D ])
-
-    test_tree(DoubleTree([ e, d, c, b, a ], lambda t: t.dependencies))
-    test_tree(DoubleTree([ a, b, c, d, e ], lambda t: t.dependencies))
-    test_tree(DoubleTree([ a, b, e, d, c ], lambda t: t.dependencies))
-    test_tree(DoubleTree([ d, a, c, e, b ], lambda t: t.dependencies))
+    test_tree(DoubleTree([e, d, c, b, a], lambda t: t.dependencies))
+    test_tree(DoubleTree([a, b, c, d, e], lambda t: t.dependencies))
+    test_tree(DoubleTree([a, b, e, d, c], lambda t: t.dependencies))
+    test_tree(DoubleTree([d, a, c, e, b], lambda t: t.dependencies))
 
 
   def test_binary_search_tree(self):
+
     rrr = MockTarget('rrr')
     rrl = MockTarget('rrl')
     rlr = MockTarget('rlr')
@@ -66,37 +67,39 @@ class DoubleTreeTest(unittest.TestCase):
 
     def test_tree(tree):
 
-      self.assertEquals(tree._roots, set([tree.lookup(root)]))
-      self.assertEquals(tree.leaves,
-        set([ tree.lookup(id) for id in [rrr, rrl, rlr, rll, lrr, lrl, llr, lll] ]))
+      def t(n):
+        return tree.lookup(n)
 
-      self.check_tree_node(tree.lookup(root), root, 0, 3, [tree.lookup(r), tree.lookup(l)], [])
+      self.assertEquals(tree._roots, set([t(root)]))
+      self.assertEquals(tree.leaves, set(map(t, [rrr, rrl, rlr, rll, lrr, lrl, llr, lll])))
 
-      self.check_tree_node(tree.lookup(r), r, 1, 2, [tree.lookup(rl), tree.lookup(rr)], [ tree.lookup(root)])
-      self.check_tree_node(tree.lookup(l), l, 1, 2, [tree.lookup(ll), tree.lookup(lr)], [ tree.lookup(root)])
+      self.check_tree_node(tree, root, [r, l], [], [r, l, rr, rl, lr, ll, rrr, rrl, rlr, rll, lrr, lrl, llr, lll], [], [])
 
-      self.check_tree_node(tree.lookup(rr), rr, 2, 1, [tree.lookup(rrl), tree.lookup(rrr)], [ tree.lookup(r)])
-      self.check_tree_node(tree.lookup(rl), rl, 2, 1, [tree.lookup(rll), tree.lookup(rlr)], [ tree.lookup(r)])
-      self.check_tree_node(tree.lookup(lr), lr, 2, 1, [tree.lookup(lrl), tree.lookup(lrr)], [ tree.lookup(l)])
-      self.check_tree_node(tree.lookup(ll), ll, 2, 1, [tree.lookup(lll), tree.lookup(llr)], [ tree.lookup(l)])
+      self.check_tree_node(tree, r, [rl, rr], [root], [rr, rl, rrr, rrl, rlr, rll], [root], [l, lr, ll, lrr, lrl, llr, lll])
+      self.check_tree_node(tree, l, [ll, lr], [root], [lr, ll, lrr, lrl, llr, lll], [root], [r, rr, rl, rrr, rrl, rlr, rll])
 
-      self.check_tree_node(tree.lookup(rrr), rrr, 3, 0, [], [ tree.lookup(rr)])
-      self.check_tree_node(tree.lookup(rrl), rrl, 3, 0, [], [ tree.lookup(rr)])
-      self.check_tree_node(tree.lookup(rlr), rlr, 3, 0, [], [ tree.lookup(rl)])
-      self.check_tree_node(tree.lookup(rll), rll, 3, 0, [], [ tree.lookup(rl)])
-      self.check_tree_node(tree.lookup(lrr), lrr, 3, 0, [], [ tree.lookup(lr)])
-      self.check_tree_node(tree.lookup(lrl), lrl, 3, 0, [], [ tree.lookup(lr)])
-      self.check_tree_node(tree.lookup(llr), llr, 3, 0, [], [ tree.lookup(ll)])
-      self.check_tree_node(tree.lookup(lll), lll, 3, 0, [], [ tree.lookup(ll)])
+      self.check_tree_node(tree, rr, [rrl, rrr], [r], [rrr, rrl], [root, r], [l, rl, lr, ll, rlr, rll, lrr, lrl, llr, lll])
+      self.check_tree_node(tree, rl, [rll, rlr], [r], [rlr, rll], [root, r], [l, rr, lr, ll, rrr, rrl, lrr, lrl, llr, lll])
+      self.check_tree_node(tree, lr, [lrl, lrr], [l], [lrr, lrl], [root, l], [r, rr, rl, ll, rrr, rrl, rlr, rll, llr, lll])
+      self.check_tree_node(tree, ll, [lll, llr], [l], [llr, lll], [root, l], [r, rr, rl, lr, rrr, rrl, rlr, rll, lrr, lrl])
+
+      self.check_tree_node(tree, rrr, [], [rr], [], [rr, r, root], [l, lr, ll, rl, rrl, rlr, rll, lrr, lrl, llr, lll])
+      self.check_tree_node(tree, rrl, [], [rr], [], [rr, r, root], [l, lr, ll, rl, rrr, rlr, rll, lrr, lrl, llr, lll])
+      self.check_tree_node(tree, rlr, [], [rl], [], [rl, r, root], [l, lr, ll, rr, rrr, rrl, rll, lrr, lrl, llr, lll])
+      self.check_tree_node(tree, rll, [], [rl], [], [rl, r, root], [l, lr, ll, rr, rrr, rrl, rlr, lrr, lrl, llr, lll])
+      self.check_tree_node(tree, lrr, [], [lr], [], [lr, l, root], [r, rr, rl, ll, rrr, rrl, rlr, rll, lrl, llr, lll])
+      self.check_tree_node(tree, lrl, [], [lr], [], [lr, l, root], [r, rr, rl, ll, rrr, rrl, rlr, rll, lrr, llr, lll])
+      self.check_tree_node(tree, llr, [], [ll], [], [ll, l, root], [r, rr, rl, lr, rrr, rrl, rlr, rll, lrr, lrl, lll])
+      self.check_tree_node(tree, lll, [], [ll], [], [ll, l, root], [r, rr, rl, lr, rrr, rrl, rlr, rll, lrr, lrl, llr])
 
     # Test in order
-    test_tree(DoubleTree([ root, r, l, rr, rl, lr, ll, rrr, rrl, rlr, rll, lrr, lrl, llr, lll ], lambda t: t.dependencies))
+    test_tree(DoubleTree([root, r, l, rr, rl, lr, ll, rrr, rrl, rlr, rll, lrr, lrl, llr, lll], lambda t: t.dependencies))
 
     # Test a couple of randomly chosen orders
-    test_tree(DoubleTree([ lrl, r, root, rl, rrr, rll, lr, lrr, ll, lll, l, rr, rrl, rlr, llr ], lambda t: t.dependencies))
-    test_tree(DoubleTree([ ll, rrl, lrl, rl, rlr, lr, root, rrr, rll, r, llr, rr, lrr, l, lll ], lambda t: t.dependencies))
-    test_tree(DoubleTree([ rr, rlr, rl, rrr, rrl, l, root, lr, lrr, llr, r, rll, lrl, ll, lll ], lambda t: t.dependencies))
-    test_tree(DoubleTree([ l, lll, rrr, rll, ll, lrl, llr, rl, root, r, lr, rlr, rr, lrr, rrl ], lambda t: t.dependencies))
+    test_tree(DoubleTree([lrl, r, root, rl, rrr, rll, lr, lrr, ll, lll, l, rr, rrl, rlr, llr], lambda t: t.dependencies))
+    test_tree(DoubleTree([ll, rrl, lrl, rl, rlr, lr, root, rrr, rll, r, llr, rr, lrr, l, lll], lambda t: t.dependencies))
+    test_tree(DoubleTree([rr, rlr, rl, rrr, rrl, l, root, lr, lrr, llr, r, rll, lrl, ll, lll], lambda t: t.dependencies))
+    test_tree(DoubleTree([l, lll, rrr, rll, ll, lrl, llr, rl, root, r, lr, rlr, rr, lrr, rrl], lambda t: t.dependencies))
 
   def test_diamond_in_different_orders(self):
     a = MockTarget('a')
@@ -107,15 +110,15 @@ class DoubleTreeTest(unittest.TestCase):
     def test_diamond_tree(tree):
       self.assertEquals(tree._roots, set([tree.lookup(d)]))
       self.assertEquals(tree.leaves, set([tree.lookup(a)]))
-      self.check_tree_node(tree.lookup(d), d, 0, 2, [tree.lookup(b), tree.lookup(c)], [])
-      self.check_tree_node(tree.lookup(c), c, 1, 1, [tree.lookup(a)], [tree.lookup(d)])
-      self.check_tree_node(tree.lookup(b), b, 1, 1, [tree.lookup(a)], [tree.lookup(d)])
-      self.check_tree_node(tree.lookup(a), a, 2, 0, [], [tree.lookup(b), tree.lookup(c)])
+      self.check_tree_node(tree, d, [b, c], [])
+      self.check_tree_node(tree, c, [a], [d])
+      self.check_tree_node(tree, b, [a], [d])
+      self.check_tree_node(tree, a, [], [b, c])
 
 
-    test_diamond_tree(DoubleTree([ a, b, c, d ], lambda t: t.dependencies))
-    test_diamond_tree(DoubleTree([ d, c, b, a ], lambda t: t.dependencies))
-    test_diamond_tree(DoubleTree([ b, d, a, c ], lambda t: t.dependencies))
+    test_diamond_tree(DoubleTree([a, b, c, d], lambda t: t.dependencies))
+    test_diamond_tree(DoubleTree([d, c, b, a], lambda t: t.dependencies))
+    test_diamond_tree(DoubleTree([b, d, a, c], lambda t: t.dependencies))
 
   def test_find_children_across_unused_target(self):
     a = MockTarget('a')
