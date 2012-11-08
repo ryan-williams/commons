@@ -14,16 +14,17 @@
 # limitations under the License.
 # ==================================================================================================
 
-import hashlib
-import os
 import collections
-import traceback
+import inspect
+import os
 
-from twitter.common.collections import OrderedSet
+from twitter.common.collections import  OrderedSet
 from twitter.common.decorators import deprecated_with_warning
 from twitter.pants.base.address import Address
+from twitter.pants.base.build_file import BuildFile
 from twitter.pants.base.hash_utils import hash_all
 from twitter.pants.base.parse_context import ParseContext
+
 
 class TargetDefinitionException(Exception):
   """Thrown on errors in target definitions."""
@@ -99,6 +100,12 @@ class Target(object):
       self.labels = set()
       self.register()
       self._initialized = True
+
+      # Find the first stack frame in a BUILD file, and take the associated source.
+      # Note that this is the definition of this target, not the entire BUILD file.
+      build_frame = next((record[0] for record in inspect.stack() if BuildFile.is_buildfile(record[1])), None)
+      (sourcelines, self.lineno) = inspect.getsourcelines(build_frame) if build_frame else ([], -1)
+      self.source = '.'.join(sourcelines)
 
   def _post_construct(self, func, *args, **kwargs):
     """Registers a command to invoke after this target's BUILD file is parsed."""
