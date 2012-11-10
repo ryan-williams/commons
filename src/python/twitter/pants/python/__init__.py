@@ -20,8 +20,10 @@ from twitter.pants.python.python_builder import PythonBuilder
 from twitter.pants.python.python_chroot import PythonChroot
 from twitter.pants.python.naive_parallelizer import NaiveParallelizer
 from twitter.pants.python.partitioning_parallelizer import PartitioningParallelizer
+from twitter.pants.python.leveling_parallelizer import LevelingParallelizer
 
 __all__ = [
+  'LevelingParallelizer',
   'NaiveParallelizer',
   'PartitioningParallelizer',
   'PythonBuilder',

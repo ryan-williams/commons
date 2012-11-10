@@ -115,6 +115,12 @@ class GraphDependencies(Task):
       print "\t%s \t-> \t%s" % (edge.get_source(), edge.get_destination())
 
     if self.context.options.outfile:
+      file_parts = self.context.options.outfile.split('.')
+      extension = "png"
+      if len(file_parts) >=2:
+        extension = file_parts[-1]
       print "Writing graph to " + self.context.options.outfile
-      g.write_png(self.context.options.outfile)
-
+      if extension == "png":
+        g.write_png(self.context.options.outfile)
+      elif extension == "gv":
+        g.write_xdot(self.context.options.outfile)

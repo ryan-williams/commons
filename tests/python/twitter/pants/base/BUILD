@@ -21,6 +21,14 @@ python_tests(name = 'base',
     pants("src/python/twitter/common/dirutil"),
     pants("src/python/twitter/pants:pants-lib"),
     pants("src/python/twitter/pants:pants-deps"),
-    pants("tests/python/twitter/pants/test")
+    pants("tests/python/twitter/pants/test"),
+  ]
+)
+
+python_tests(name = 'abbrev',
+  sources = [ 'test_abbreviate_target_ids.py' ],
+  dependencies = [
+    pants("src/python/twitter/pants:pants-lib"),
+    pants("tests/python/twitter/pants/test"),
   ]
 )

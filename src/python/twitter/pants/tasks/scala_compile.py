@@ -40,7 +40,7 @@ from twitter.pants.tasks.jvm_compiler_dependencies import Dependencies
 from twitter.pants.tasks.nailgun_task import NailgunTask
 from twitter.pants.python import NaiveParallelizer
 from twitter.pants.python import PartitioningParallelizer
-
+from twitter.pants.python import LevelingParallelizer
 
 # Well known metadata file required to register scalac plugins with nsc.
 _PLUGIN_INFO_FILE = 'scalac-plugin.xml'
@@ -74,7 +74,7 @@ class ScalaCompile(NailgunTask):
       help="Use up to this many parallel invocations of Zinc while compiling scala files.")
 
     option_group.add_option(mkflag("parallelization-strategy"), dest="scala_compile_parallelization_strategy",
-      action="store", type="string", default="partitioned",
+      action="store", type="string", default="leveling",
       help="'partitioned' (default) for partitioned parallel compiling. 'naive' for naive.")
 
     option_group.add_option(mkflag("color"), mkflag("color", negate=True),
@@ -215,7 +215,7 @@ class ScalaCompile(NailgunTask):
           compile_cmd = dry_run_compile_cmd if self.dry_run else live_compile_cmd
           post_compile_cmd = None if self.dry_run else live_post_compile_cmd
 
-          if (self._parallelization_strategy == 'naive'):
+          if self._parallelization_strategy == 'naive':
             print "Using naive parallelizer"
             NaiveParallelizer(
               self.context.log,
@@ -223,7 +223,7 @@ class ScalaCompile(NailgunTask):
               self._num_parallel_compiles,
               compile_cmd,
               post_compile_cmd).execute()
-          else:
+          elif self._parallelization_strategy == 'partitioned':
             print "Using partitioned parallelizer (hint: %d)" % self._partition_size_hint
             PartitioningParallelizer(
               self.context.log,
@@ -232,6 +232,15 @@ class ScalaCompile(NailgunTask):
               self._partition_size_hint,
               compile_cmd,
               post_compile_cmd).execute()
+          else:
+            print "Using leveling parallelizer"
+            LevelingParallelizer(
+              self.context.log,
+              invalidation_result._invalid_target_tree,
+              self._num_parallel_compiles,
+              compile_cmd,
+              post_compile_cmd).execute()
+
         else:
           for vt in invalidation_result.invalid_vts_partitioned:
             # Compile, using partitions for efficiency.

@@ -16,6 +16,9 @@ class DoubleTreeNode(object):
   def __repr__(self):
     return self.data.id
 
+  #def __deepcopy__(self, memo):
+
+
   def as_str(self):
     return "%s -> [%s][%s]" % (self.data.id, ','.join([child.data.id for child in self.children]), ','.join([c.data.id for c in self.invalidated_children]))
 
@@ -47,23 +50,25 @@ class DoubleTree(object):
       print root.data.id
     print ''
 
-    for node in self.nodes:
-      print "%s:" % node.data.id
-      print "\tchildren (%d):" % len(node.children)
-      for child in node.children:
-          print "\t\t" + child.data.id
-      print "\tparents (%d):" % len(node.parents)
-      for parent in node.parents:
-          print "\t\t" + parent.data.id
-      print ''
+#    for node in self.nodes:
+#      print "%s:" % node.data.id
+#      print "\tchildren (%d):" % len(node.children)
+#      for child in node.children:
+#          print "\t\t" + child.data.id
+#      print "\tparents (%d):" % len(node.parents)
+#      for parent in node.parents:
+#          print "\t\t" + parent.data.id
+#      print ''
 
     self.print_tree()
 
     print "done!"
 
   def print_tree(self):
+    print "deps = {"
     for node in self.nodes:
-      print """deps["%s"] = {"num": %d, "children": [%s]}""" % (node.data.id, node.data.num_sources, ','.join(['"%s"' % child.data.id for child in node.children]))
+      print """  "%s": {"num": %d, "children": [%s]},""" % (node.data.id, node.data.num_sources, ','.join(['"%s"' % child.data.id for child in node.children]))
+    print '}'
     print ''
 
   def lookup(self, data):
@@ -123,22 +128,41 @@ class DoubleTree(object):
   def _find_roots_and_leaves(self):
     print "\t _find_roots_and_leaves"
     for node in self.nodes:
-      if len(node.parents) == 0:
+      if not node.parents:
         self._roots.add(node)
-      if len(node.children) == 0:
+      if not node.children:
         self.leaves.add(node)
 
 
-  def remove_nodes(self, nodes):
-    new_leaves = set()
+  def restore_nodes(self, nodes):
     for node in nodes:
       for parent_node in node.parents:
         if parent_node in nodes:
           continue
+        if not parent_node.children:
+          self.leaves.remove(parent_node)
+        parent_node.children.add(node)
+    self.leaves.update(nodes)
+
+  def remove_nodes(self, nodes):
+    print "\tRemoving nodes: {%s}" % ','.join([n.data.id for n in nodes])
+    new_leaves = set()
+    for node in nodes:
+      #print "\t\t%s" % node.data.id
+      if node not in self.nodes:
+        raise Exception("Attempting to remove invalid node: %s" % node.data.id)
+      for parent_node in node.parents:
+        #print "\t\t\tparent: %s" % parent_node.data.id
+        if parent_node in nodes:
+          continue
         parent_node.children.remove(node)
-        if len(parent_node.children) == 0:
-          self.leaves.add(parent_node)
+        if not parent_node.children:
           new_leaves.add(parent_node)
+
+    # Do these outside in case 'nodes' is in fact self.leaves, so that we don't change the set we're iterating over.
+    self.leaves -= nodes
+    self.leaves.update(new_leaves)
+    print "\tnew leaves: {%s}. all leaves: {%s}" % (','.join([n.data.id for n in new_leaves]), ','.join([n.data.id for n in self.leaves]))
     return new_leaves
 
 
@@ -149,7 +173,7 @@ class DoubleTree(object):
     for parent_node in node.parents:
       parent_node.children.remove(node)
       parent_node.invalidated_children.add(node)
-      if len(parent_node.children) == 0:
+      if not len(parent_node.children):
         self.leaves.add(parent_node)
         new_leaves.add(parent_node)
 
@@ -161,7 +185,7 @@ class DoubleTree(object):
     if len(node.children) != 0:
       raise Exception("add_leaf called on child-having node %s" % node.data.id)
     for parent_node in node.parents:
-      if len(parent_node.children) == 0:
+      if not parent_node.children:
         if parent_node not in self.leaves:
           raise Exception("add_leaf called on %s. childless parent %s not in leaves array" % (node.data.id, parent_node.data.id))
         self.leaves.remove(parent_node)

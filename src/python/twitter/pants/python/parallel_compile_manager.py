@@ -61,7 +61,7 @@ class ParallelCompileManager(object):
 
   def _spawn_target_compile(self, target_node_set):
     "Start compiling a given VersionedTarget"
-    if len(target_node_set) == 0:
+    if not target_node_set:
       return
     self._logger.info("\n*** Spawning compile: %s\n" % str(target_node_set))
     compile_process = self._compile_cmd(target_node_set)
@@ -147,7 +147,7 @@ class ParallelCompileManager(object):
         break
 
     print "\n%s after compiling %d targets out of %d:" % (
-      "Nothing left to spawn" if len(self._processed_nodes) == num_nodes and len(self._failed_compiles) == 0 else "Caught failure",
+      "Nothing left to spawn" if len(self._processed_nodes) == num_nodes and not self._failed_compiles else "Caught failure",
       len(self._processed_nodes),
       len(self._tree.nodes))
     for node in self._processed_nodes:
