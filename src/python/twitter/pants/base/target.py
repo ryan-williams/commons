@@ -18,7 +18,7 @@ import collections
 import inspect
 import os
 
-from twitter.common.collections import  OrderedSet
+from twitter.common.collections import OrderedSet
 from twitter.common.decorators import deprecated_with_warning
 from twitter.pants.base.address import Address
 from twitter.pants.base.build_file import BuildFile
@@ -101,11 +101,11 @@ class Target(object):
       self.register()
       self._initialized = True
 
-      # Find the first stack frame in a BUILD file, and take the associated source.
-      # Note that this is the definition of this target, not the entire BUILD file.
+      # Find the first stack frame that's in a BUILD file.
       build_frame = next((record[0] for record in inspect.stack() if BuildFile.is_buildfile(record[1])), None)
-      (sourcelines, self.lineno) = inspect.getsourcelines(build_frame) if build_frame else ([], -1)
-      self.source = '.'.join(sourcelines)
+      # Capture the source code for this target and the first line number it appears at in the BUILD file.
+      # Note that the newline characters are not stripped from source_lines.
+      (self.source_lines, self.source_lineno) = inspect.getsourcelines(build_frame) if build_frame else ([], -1)
 
   def _post_construct(self, func, *args, **kwargs):
     """Registers a command to invoke after this target's BUILD file is parsed."""

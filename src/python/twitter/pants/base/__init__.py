@@ -20,6 +20,7 @@ from .config import Config
 from .fileset import Fileset
 from .parse_context import ContextError, ParseContext
 from .target import Target, TargetDefinitionException
+from .target_definition import TargetDefinition
 from .timer import Timer
 
 
@@ -31,6 +32,7 @@ __all__ = [
   'Fileset',
   'ParseContext',
   'Target',
+  'TargetDefinition',
   'TargetDefinitionException',
   'Timer'
 ]
