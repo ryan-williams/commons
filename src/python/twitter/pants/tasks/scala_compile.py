@@ -633,7 +633,6 @@ class ScalaDependencyCache(object):
           self.computed_deps[target] = set(target_dep_targets)
     return self.computed_deps
 
-
   def get_dependency_blame(self, from_target, to_target):
     """
     Figures out why target "from" depends on target "to".
