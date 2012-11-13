@@ -110,11 +110,11 @@ class Dependencies(object):
         classes_by_target_by_source[target][relsrc] = classfiles
     return classes_by_target_by_source
 
-  def getClassToTargetMap(self, targets):
+  def get_class_to_target_map(self, targets):
     """
       Gets a map from class to a list of the targets that provides the class.
-      If the class is part of more than one target, then the value in
-      the map will be a list of targets.
+      Normally, the value for a class will be a singleton list;
+      if the class is part of more than one target, then the value in the map will be a list of targets.
 
       (Note that the same class provided by multiple targets should be
       an error, but this isn't the right place to signal that; instead, here,
