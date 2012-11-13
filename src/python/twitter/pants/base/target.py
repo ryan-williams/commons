@@ -101,11 +101,8 @@ class Target(object):
       self.register()
       self._initialized = True
 
-      # Find the first stack frame that's in a BUILD file.
-      build_frame = next((record[0] for record in inspect.stack() if BuildFile.is_buildfile(record[1])), None)
-      # Capture the source code for this target and the first line number it appears at in the BUILD file.
-      # Note that the newline characters are not stripped from source_lines.
-      (self.source_lines, self.source_lineno) = inspect.getsourcelines(build_frame) if build_frame else ([], -1)
+      # Find the first stack frame that's in a BUILD file, and grab the line number.
+      self.source_lineno = next((record[2] for record in inspect.stack() if BuildFile.is_buildfile(record[1])), -1)
 
   def _post_construct(self, func, *args, **kwargs):
     """Registers a command to invoke after this target's BUILD file is parsed."""

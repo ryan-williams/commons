@@ -442,6 +442,7 @@ class Goal(Command):
 # Install all default pants provided goals
 from twitter.pants.targets import JavaLibrary, JavaTests
 from twitter.pants.tasks.binary_create import BinaryCreate
+from twitter.pants.tasks.build_lint import BuildLint
 from twitter.pants.tasks.bundle_create import BundleCreate
 from twitter.pants.tasks.checkstyle import Checkstyle
 from twitter.pants.tasks.filedeps import FileDeps
@@ -666,6 +667,11 @@ goal(
 ).install().with_description('Emit the list of symbols provided by the given targets.')
 
 from twitter.pants.tasks.python.setup import SetupPythonEnvironment
+
+goal(
+  name='buildlint',
+  action=BuildLint
+).install()
 
 goal(
   name='python-setup',

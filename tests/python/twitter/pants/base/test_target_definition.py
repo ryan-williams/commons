@@ -32,8 +32,10 @@ class TargetDefinitionTest(unittest.TestCase):
 
   def setUp(self):
     self.root = tempfile.mkdtemp()
-    self._write_build_content('test/foo/BUILD', "scala_library(name='foo', sources=[], dependencies=[])")
-    self._write_build_content('test/bar/BUILD', "scala_library(name='bar', sources=[], dependencies=[])")
+    self._write_build_content('test/dep1/BUILD', "scala_library(name='dep1', sources=[], dependencies=[])")
+    self._write_build_content('test/dep2/BUILD', "scala_library(name='dep2', sources=[], dependencies=[])")
+    self._write_build_content('test/dep3/BUILD', "scala_library(name='dep3', sources=[], dependencies=[])")
+    self._write_build_content('test/dep4/BUILD', "scala_library(name='dep4', sources=[], dependencies=[])")
 
   def tearDown(self):
     shutil.rmtree(self.root, ignore_errors=True)
@@ -51,18 +53,50 @@ class TargetDefinitionTest(unittest.TestCase):
     ParseContext(buildfile).parse()
     return buildfile
 
-  def _do_test_source(self, addr, expected):
+  def _do_test_source(self, buildfile, tgt_name, expected):
+    addr = Address(buildfile, tgt_name, False)
     tgt = Target.get(addr)
-    definition = TargetDefinition(tgt.source_lines, tgt.source_lineno)
-    print 'XXXXXXXXXXXXXXXXXXXXX '
+    target_def = TargetDefinition(tgt)
+    formatted = target_def.format()
+    self.assertEquals(expected.strip() + '\n', formatted)
 
   def test_source(self):
-    src1 = "scala_library(name='baz', sources=['Baz1.scala', 'Baz2.scala'], " + \
-           "dependencies=[pants('test/foo'), pants('test/bar')])\n"
-    src2 = "scala_library(name='qux', dependencies=[], sources=(globs('Qux*.scala') + ['Something.scala']))\n"
-    buildfile = self._parse_build_content(src1 + '\n' + src2)
+    src1 = \
+"""
+scala_library(
+  name = 'foo', sources=['Foo2.scala', 'Foo1.scala'],
+  dependencies =[pants('test/dep2'),
+                pants('test/dep1')],
+                )
+"""
+    expected1 = \
+"""
+scala_library(name = 'foo',
+  dependencies = [
+    pants('test/dep1'),
+    pants('test/dep2')
+  ],
+  sources = ['Foo1.scala', 'Foo2.scala']
+)
+"""
+    src2 = \
+"""
+scala_library(name ='bar',
+  dependencies= [ pants('test/dep3')   ],
+  sources=rglobs('*.scala') -[ 'Something2.scala', 'Something1.scala' ])
+"""
+    # Note that we won't sort the list in the definition of sources, because it's not the entire definition.
+    expected2 = \
+"""
+scala_library(name = 'bar',
+  dependencies = [
+    pants('test/dep3')
+  ],
+  sources = rglobs('*.scala') - ['Something2.scala', 'Something1.scala']
+)
+"""
+    buildfile_content = src1 + '\n' + src2
+    buildfile = self._parse_build_content(buildfile_content)
 
-    addr1 = Address(buildfile, 'baz', False)
-    addr2 = Address(buildfile, 'qux', False)
-
-    self._do_test_source(addr1, '')
+    self._do_test_source(buildfile, 'foo', expected1)
+    self._do_test_source(buildfile, 'bar', expected2)
