@@ -135,4 +135,3 @@ class JvmDependencyCache(object):
         if cl in self.targets_by_class and to_target in self.targets_by_class[cl]:
           return (source, cl)
     return ("none", "none")
-
