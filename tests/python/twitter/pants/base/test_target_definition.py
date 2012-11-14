@@ -58,7 +58,7 @@ class TargetDefinitionTest(unittest.TestCase):
     tgt = Target.get(addr)
     target_def = TargetDefinition(tgt)
     formatted = target_def.format()
-    self.assertEquals(expected.strip() + '\n', formatted)
+    self.assertEquals(expected.strip(), formatted)
 
   def test_source(self):
     src1 = \
@@ -74,9 +74,9 @@ scala_library(
 scala_library(name = 'foo',
   dependencies = [
     pants('test/dep1'),
-    pants('test/dep2')
+    pants('test/dep2'),
   ],
-  sources = ['Foo1.scala', 'Foo2.scala']
+  sources = ['Foo1.scala', 'Foo2.scala'],
 )
 """
     src2 = \
@@ -90,9 +90,9 @@ scala_library(name ='bar',
 """
 scala_library(name = 'bar',
   dependencies = [
-    pants('test/dep3')
+    pants('test/dep3'),
   ],
-  sources = rglobs('*.scala') - ['Something2.scala', 'Something1.scala']
+  sources = rglobs('*.scala') - ['Something2.scala', 'Something1.scala'],
 )
 """
     buildfile_content = src1 + '\n' + src2

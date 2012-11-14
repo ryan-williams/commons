@@ -20,8 +20,6 @@ import parser
 import symbol
 import token
 
-from twitter.common.collections.ordereddict import OrderedDict
-from twitter.common.collections.orderedset import OrderedSet
 from twitter.pants.base.target import TargetDefinitionException
 
 
@@ -31,6 +29,94 @@ class AST(object):
   Provides useful tree navigation ability, and is much more convenient to work with than
   working directly with the tuples (or python's internal ast nodes).
   """
+  class Formatter:
+    """Settings for formatting an AST back to a string."""
+    TOP_LEVEL = '_TOP_LEVEL'
+
+    DEFAULT_SURROUND_WITH_SPACES = set(['-', '+', '='])
+    DEFAULT_APPEND_SPACE = set([','])
+    DEFAULT_MULTILINE = frozenset(['dependencies', 'artifact'])
+    DEFAULT_MULTILINE_COMPACT = frozenset([TOP_LEVEL])
+    DEFAULT_ARG_ORDER = ('name', 'provides', 'dependencies', 'sources')
+    DEFAULT_SORT_VALUES_FOR = frozenset(['dependencies', 'sources'])
+
+    def __init__(self,
+                 surround_with_spaces=DEFAULT_SURROUND_WITH_SPACES,
+                 append_space=DEFAULT_APPEND_SPACE,
+                 multiline=DEFAULT_MULTILINE,
+                 multiline_compact=DEFAULT_MULTILINE_COMPACT,
+                 arg_order=DEFAULT_ARG_ORDER,
+                 sort_values_for=DEFAULT_SORT_VALUES_FOR):
+      self.surround_with_spaces = surround_with_spaces  # Surround these tokens with spaces.
+      self.append_space = append_space  # Append a space after these tokens.
+      self.multiline = multiline  # Format these lists one item per line.
+      self.multiline_compact = multiline_compact  # Same as multiline, but with no whitespace before the first item.
+      self.arg_order = arg_order  # Order arglists with these first, in this order.
+      self.sort_values_for = sort_values_for  # Sort the value lists of these args alphabetically.
+      self.kwarg_order_key = dict()
+      for i, arg_name in enumerate(self.arg_order):
+        self.kwarg_order_key[arg_name] = 'AAAA%03d' % i
+
+    # This will sort args by the order in self.arg_order first, and then any remaining args
+    # in the original order (python's sort is stable).
+    # Note that this is a no-op if the list is not an arglist.
+    def arglist_key_func(self, str):
+      arg_name = str.split('=', 2)[0].strip()
+      return self.kwarg_order_key.get(arg_name, 'Z')
+
+    def format_token(self, token):
+      if token in self.surround_with_spaces:
+        return ' %s ' % token
+      elif token in self.append_space:
+        return '%s ' % token
+      else:
+        return token
+
+    def format_list(self, context, nesting_depth, values):
+      """Format a list of comma-separated strings."""
+      values = filter(lambda x: x.strip() != ',', values)
+      if context in self.sort_values_for:
+        values = sorted(values)
+      else:
+        values = sorted(values, key=self.arglist_key_func)
+      if context in self.multiline or context in self.multiline_compact:
+        indent = (nesting_depth + 1) * '  '
+        str = '%s,\n' % (',\n' + indent).join(values)
+        if context in self.multiline:
+          str = '\n%s%s%s' % (indent, str, nesting_depth * '  ')
+      else:
+        str = '%s' % ', '.join(values)
+      return str
+
+  DEFAULT_FORMATTER=Formatter()
+
+  @staticmethod
+  def to_ast(tpl, parent=None, elide=True):
+    """Convert an ast tuple (as returned by parser.st2tuple()) into a tree of AST instances.
+
+    If elide is true we elide away all unnecessary singleton nodes. This makes for a
+    more useful and readable tree.
+    """
+    ret = AST(tpl, parent)
+    if isinstance(tpl[1], tuple):  # A non-terminal node. All elements apart from the first are tuples.
+      ret.children = [AST.to_ast(x, ret) for x in tpl[1:]]
+      if elide:
+        ret.children = [
+        x.children[0]\
+        if len(x.children) == 1 and x.production not in (symbol.listmaker, symbol.arglist)
+        else x for x in ret.children
+        ]
+      for i in xrange(0, len(ret.children)):
+        if i > 0:
+          ret.children[i - 1].right_sibling = ret.children[i]
+        if i + 1 < len(ret.children):
+          ret.children[i + 1].left_sibling = ret.children[i]
+      ret.first_line = ret.children[0].first_line
+      ret.last_line = ret.children[-1].last_line
+    elif len(tpl) == 3:  # We have line numbers.
+      ret.first_line = ret.last_line = tpl[2]
+    return ret
+
   def __init__(self, tpl, parent):
     self.production = tpl[0]  # The production type (a value from symbol or token).
     self.tpl = tpl  # The underlying tuple.
@@ -44,42 +130,25 @@ class AST(object):
     self.first_line = -1
     self.last_line = -1
 
-  def find_first(self, production):
-    """Finds the first descendant of the specified production type."""
-    if self.production == production:
-      return self
-    else:
-      for i in xrange(len(self.children)):
-        res = self.children[i].find_first(production)
-        if res:
-          return res
-    return None
-
-  def find_left(self, production):
-    """Finds the first descendant of the specified production type, looking only down the left-most path."""
-    if self.production == production:
-      return self
-    elif len(self.children) > 0:
-      return self.children[0].find_left(production)
-    else:
-      return None
-
-  SURROUND_WITH_SPACES = set(['-', '+'])
-  APPEND_SPACE = set([','])
-
-  def reconstitute(self):
-    """Reconstitutes the AST to a canonical string form."""
-    def transform(str):
-      if str in AST.SURROUND_WITH_SPACES:
-        return ' %s ' % str
-      elif str in AST.APPEND_SPACE:
-        return '%s ' % str
-      else:
-        return str
+  def reconstitute(self, nesting_depth=0, formatter=DEFAULT_FORMATTER):
+    """Reconstitutes the AST to a canonical form."""
     if len(self.children) == 0:
-      return transform(self.tpl[1])
+      return formatter.format_token(self.tpl[1])
+    elif self.production == symbol.arglist or self.production == symbol.listmaker:
+      context = None
+      reconstituted_list_items = [x.reconstitute(nesting_depth + 1, formatter) for x in self.children]
+      if self.production == symbol.arglist:
+        context = AST.Formatter.TOP_LEVEL if nesting_depth == 0 else \
+          self.parent.left_sibling.reconstitute(nesting_depth + 1, formatter).strip()
+      elif self.production == symbol.listmaker:
+        ancestor = self.left_sibling  # The left-square-bracket token.
+        while ancestor and not ancestor.left_sibling:
+          ancestor = ancestor.parent
+        if ancestor and ancestor.left_sibling.production == token.EQUAL:
+          context = ancestor.left_sibling.left_sibling.reconstitute(nesting_depth + 1, formatter).strip()
+      return formatter.format_list(context, nesting_depth, reconstituted_list_items)
     else:
-      return ''.join([x.reconstitute() for x in self.children])
+      return ''.join([x.reconstitute(nesting_depth, formatter) for x in self.children])
 
   def pretty_print(self, newlines=True, indent='  '):
     """Returns a pretty-printed representation of this AST.
@@ -104,71 +173,6 @@ class TargetDefinition(object):
 
   Useful for things like linting and rewriting BUILD files.
   """
-
-  @staticmethod
-  def _to_ast(tpl, parent=None):
-    """Convert an ast tuple (as returned by parser.st2tuple()) into a tree of AST instances."""
-    ret = AST(tpl, parent)
-    if isinstance(tpl[1], tuple):  # A non-terminal node. All elements apart from the first are tuples.
-      ret.children = [TargetDefinition._to_ast(x, ret) for x in tpl[1:]]
-      for i in xrange(0, len(ret.children)):
-        if i > 0:
-          ret.children[i - 1].right_sibling = ret.children[i]
-        if i + 1 < len(ret.children):
-          ret.children[i + 1].left_sibling = ret.children[i]
-      ret.first_line = ret.children[0].first_line
-      ret.last_line = ret.children[-1].last_line
-    elif len(tpl) == 3:  # We have line numbers.
-      ret.first_line = ret.last_line = tpl[2]
-    return ret
-
-  @staticmethod
-  def _split_target_definition(ast):
-    """A heuristic to split the target type and the args out of the textual definition.
-
-    Assumes that the definition is more or less of the form
-
-    target_type_decl(arg1=value1, arg2=value2)
-
-    E.g.,
-
-    java_library(name='foo',
-                 dependencies=[
-                   pants('src/java/bar'),
-                   pants('src/java/baz')
-                ],
-                sources=globs('*.java))
-
-    Because we're using the python AST, and not naive regex matching, we can handle a wide variety
-    of cases. See the unit test for examples.
-    """
-    open_paren = ast.find_first(token.LPAR)
-
-    target_type_decl = open_paren.parent.left_sibling.reconstitute()
-
-    # open_paren.right_sibling is the argument list. Its children are of production type
-    # symbol.argument interspersed with token.COMMA. We filter out the commas here.
-    arg_asts = filter(lambda x: x.production == symbol.argument, open_paren.right_sibling.children)
-
-    # Each arg AST's children tuple is (token.NAME, token.EQUALS, value AST).
-    name_value_ast_pairs = [(x.children[0].reconstitute(), x.children[2]) for x in arg_asts]
-
-    # If value is a list, reconstitute it as a list, otherwise as a string.
-    def reconstitute_value(value_ast):
-      # Check if arg value is a list.
-      left_square_bracket = value_ast.find_left(token.LSQB)
-      if left_square_bracket:
-        list_parent = left_square_bracket.right_sibling
-        value = [x.reconstitute() for x in filter(lambda x: x.production != token.COMMA, list_parent.children)]
-      else:
-        value = value_ast.reconstitute()
-      return value
-
-    # A map of name -> value where value is either a string or a list of strings.
-    # Map is in defintion order of args.
-    args = OrderedDict([(name, reconstitute_value(value_ast)) for (name, value_ast) in name_value_ast_pairs ])
-    return target_type_decl, args
-
   def __init__(self, tgt):
     with open(tgt.address.buildfile.full_path, 'r') as infile:
       self.buildfile_content = infile.read()
@@ -180,7 +184,7 @@ class TargetDefinition(object):
     # We could even hook in to the original parse of the BUILD file when it's eval'd, but
     # that's almost certainly overkill, and would complicate the design unnecessarily.
     st = parser.suite(self.buildfile_content)
-    buildfile_ast = TargetDefinition._to_ast(parser.st2tuple(st, line_info=True))
+    buildfile_ast = AST.to_ast(parser.st2tuple(st, line_info=True))
 
     # There can be all sorts of top-level definitions in the BUILD file.
     # Here we find the one corresponding to the target we're interested in, by
@@ -193,51 +197,15 @@ class TargetDefinition(object):
     if self.target_ast is None:  # Should never happen.
       raise TargetDefinitionException(tgt, 'Could not find target definition in its AST')
 
-    (self.target_type_decl, self.args) = TargetDefinition._split_target_definition(self.target_ast)
+  def format(self, formatter=AST.DEFAULT_FORMATTER):
+    """Returns a string with a nicely-formatted representation of this target definition."""
+    return self.target_ast.reconstitute(formatter=formatter)
 
-  # When reformatting a target definition, enforce that these args come first, in this order.
-  DEFAULT_ARG_ORDER = ('name', 'provides', 'dependencies', 'sources')
-
-  # When reformatting a target definition, format these args on multiple lines, if the value is a list.
-  DEFAULT_MULTILINE_ARGS = frozenset(['dependencies'])
-
-  # When reformatting a target definition, sort the value of these args alphabetically, if it's a list.
-  DEFAULT_SORT_ARGS = frozenset(['dependencies', 'sources'])
-
-  def format(self,
-             arg_order=DEFAULT_ARG_ORDER,
-             multiline_args=DEFAULT_MULTILINE_ARGS,
-             sort_args=DEFAULT_SORT_ARGS):
-    """Returns a string with a nicely-formatted representation of this target definition.
-
-    Args are formatted in the order specified in arg_order, if any, followed by any remaining arguments,
-    in the original definition order. Args in multiline_args whose values are list are formatted
-    one list element per line. Other args whose values are list are formatted all on one line.
-    """
-    arg_names = OrderedSet(arg_order)  # Note that some of these might not be present in the target.
-    for arg_name in self.args.keys():
-      arg_names.add(arg_name)
-    arg_strs = []
-    for arg_name in arg_names:
-      val = self.args.get(arg_name, None)
-      if val:
-        if isinstance(val, list):
-          if arg_name in sort_args:
-            val.sort()
-          if arg_name in multiline_args:
-            val_str = '[\n    %s,\n  ]' % ',\n    '.join(val)
-          else:
-            val_str = '[%s]' % ', '.join(val)
-        else:
-          val_str = str(val)
-        arg_strs.append('%s = %s' % (arg_name, val_str))
-    return '%s(%s\n)\n' % (self.target_type_decl, ',\n  '.join(arg_strs))
-
-  def reformat_buildfile(self):
+  def reformat_buildfile(self, formatter=AST.DEFAULT_FORMATTER):
     # Note that line numbers are 1-based.
     new_buildfile_content = \
       '\n'.join(self.buildfile_lines[0:self.target_ast.first_line-1]) + \
-      self.format() + \
+      self.format(formatter) + \
       '\n'.join(self.buildfile_lines[self.target_ast.last_line:])
     return new_buildfile_content
 
