@@ -37,7 +37,7 @@ class AST(object):
     DEFAULT_APPEND_SPACE = set([','])
     DEFAULT_MULTILINE = frozenset(['dependencies', 'artifact'])
     DEFAULT_MULTILINE_COMPACT = frozenset([TOP_LEVEL])
-    DEFAULT_ARG_ORDER = ('name', 'provides', 'dependencies', 'sources')
+    DEFAULT_ARG_ORDER = ('org', 'name', 'repo', 'provides', 'dependencies', 'sources')
     DEFAULT_SORT_VALUES_FOR = frozenset(['dependencies', 'sources'])
 
     def __init__(self,
@@ -204,8 +204,10 @@ class TargetDefinition(object):
   def reformat_buildfile(self, formatter=AST.DEFAULT_FORMATTER):
     # Note that line numbers are 1-based.
     new_buildfile_content = \
-      '\n'.join(self.buildfile_lines[0:self.target_ast.first_line-1]) + \
+      '\n'.join(self.buildfile_lines[0:self.target_ast.first_line-1]) +\
+      '\n' + \
       self.format(formatter) + \
+      '\n' + \
       '\n'.join(self.buildfile_lines[self.target_ast.last_line:])
     return new_buildfile_content
 
