@@ -195,7 +195,7 @@ class ScalaCompile(NailgunTask):
         target_deps = deps_cache.get_compilation_dependencies()
         for target in target_deps:
           deps = target_deps[target].copy()
-          target.walk(self, lambda target: self._dependency_walk_work(deps, target))
+          target.walk(lambda target: self._dependency_walk_work(deps, target))
           if len(deps) > 0:
             # for now, just print a message. Later, upgrade this to really generate
             # an error.
