@@ -49,11 +49,11 @@ class BuildLint(Task):
       for target in self.context.target_roots:
         self._fix_lint(target)
 
-  DEPS_RE = re.compile(r'dependencies\s*=\s*\[((?:[^,]+),)([^,]+),?\s*\]', flags=re.DOTALL)
+  DEPS_RE = re.compile(r'dependencies\s*=\s*\[([^\]]*)\s*\]', flags=re.DOTALL)
 
   def _fix_lint(self, target):
     def sort_deps(m):
-      deps = m.group(1).split(',') + [m.group(2)]
+      deps = m.group(1).split(',')
       deps = filter(lambda x: x, [x.strip() for x in deps])
       deps = sorted(deps)
       res = 'dependencies = [\n    %s,\n  ]' % (',\n    '.join(deps))
