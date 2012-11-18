@@ -22,13 +22,10 @@ import tempfile
 import unittest
 
 from twitter.common.dirutil import safe_mkdir
-from twitter.pants.base import BuildFile, ParseContext
-from twitter.pants.base.address import Address
-from twitter.pants.base.target import Target
-from twitter.pants.base.target_definition import TargetDefinition
+from twitter.pants.base.build_definition import BuildDefinition
 
 
-class TargetDefinitionTest(unittest.TestCase):
+class BuildDefinitionTest(unittest.TestCase):
 
   def setUp(self):
     self.root = tempfile.mkdtemp()
@@ -43,34 +40,42 @@ class TargetDefinitionTest(unittest.TestCase):
   def _write_build_content(self, relpath, content):
     fullpath = os.path.join(self.root, relpath)
     safe_mkdir(os.path.dirname(fullpath))
-    with open(fullpath, 'a') as f:
+    with open(fullpath, 'w') as f:
       f.write(content)
+    return fullpath
 
-  def _parse_build_content(self, content):
-    relpath = 'test/BUILD'
-    self._write_build_content(relpath, content)
-    buildfile = BuildFile(self.root, relpath)
-    ParseContext(buildfile).parse()
-    return buildfile
+  def _do_test_reformatting(self, buildfile_path, expected):
+    build_def = BuildDefinition(buildfile_path)
+    formatted = build_def.reformat_buildfile()
+    self.assertEquals(expected.lstrip(), formatted)
 
-  def _do_test_source(self, buildfile, tgt_name, expected):
-    addr = Address(buildfile, tgt_name, False)
-    tgt = Target.get(addr)
-    target_def = TargetDefinition(tgt)
-    formatted = target_def.format()
-    self.assertEquals(expected.strip(), formatted)
-
-  def test_source(self):
-    src1 = \
+  def test_reformatting(self):
+    src = \
 """
+# A multiline
+# comment.
 scala_library(
   name = 'foo', sources=['Foo2.scala', 'Foo1.scala'],
   dependencies =[pants('test/dep2'),
                 pants('test/dep1')],
                 )
+
+# A comment in
+
+# the middle.
+
+scala_library(name ='bar',  # Comment
+  dependencies= [ pants('test/dep3')   ],
+  # Note that we won't sort the list below, because it's not the entire definition.
+  sources=rglobs('*.scala') -[ 'Something2.scala', 'Something1.scala' ])
+
+# A comment at the end.
 """
-    expected1 = \
+
+    expected = \
 """
+# A multiline
+# comment.
 scala_library(name = 'foo',
   dependencies = [
     pants('test/dep1'),
@@ -78,25 +83,21 @@ scala_library(name = 'foo',
   ],
   sources = ['Foo1.scala', 'Foo2.scala'],
 )
-"""
-    src2 = \
-"""
-scala_library(name ='bar',
-  dependencies= [ pants('test/dep3')   ],
-  sources=rglobs('*.scala') -[ 'Something2.scala', 'Something1.scala' ])
-"""
-    # Note that we won't sort the list in the definition of sources, because it's not the entire definition.
-    expected2 = \
-"""
-scala_library(name = 'bar',
+
+# A comment in
+
+# the middle.
+
+scala_library(name = 'bar',  # Comment
   dependencies = [
     pants('test/dep3'),
   ],
+  # Note that we won't sort the list below, because it's not the entire definition.
   sources = rglobs('*.scala') - ['Something2.scala', 'Something1.scala'],
 )
-"""
-    buildfile_content = src1 + '\n' + src2
-    buildfile = self._parse_build_content(buildfile_content)
 
-    self._do_test_source(buildfile, 'foo', expected1)
-    self._do_test_source(buildfile, 'bar', expected2)
+# A comment at the end.
+"""
+
+    buildfile_path = self._write_build_content('test/foo/BUILD', src)
+    self._do_test_reformatting(buildfile_path, expected)

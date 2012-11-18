@@ -18,7 +18,7 @@ __author__ = 'Benjy Weinberger'
 
 import difflib
 
-from twitter.pants.base.target_definition import TargetDefinition
+from twitter.pants.base.build_definition import BuildDefinition
 from twitter.pants.tasks import Task
 
 
@@ -32,11 +32,13 @@ class BuildLint(Task):
 
   def _fix_lint(self, target):
     buildfile_path = target.address.buildfile.full_path
-    target_def = TargetDefinition(target)
+    target_def = BuildDefinition(buildfile_path)
     old_buildfile_lines = target_def.buildfile_lines
     new_buildfile_lines = target_def.reformat_buildfile().split('\n')
     if new_buildfile_lines != old_buildfile_lines:
-      diff = '\n'.join(difflib.unified_diff(old_buildfile_lines, new_buildfile_lines, buildfile_path))
-    else:
-      diff = "no diff for " + buildfile_path
-    print diff
+      with open(buildfile_path, 'w') as outfile:
+        outfile.write('\n'.join(new_buildfile_lines))
+    #  diff = '\n'.join(difflib.unified_diff(old_buildfile_lines, new_buildfile_lines, buildfile_path))
+    #else:
+    #  diff = "no diff for " + buildfile_path
+    #print diff
