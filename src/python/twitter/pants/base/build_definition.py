@@ -33,7 +33,7 @@ class AST(object):
 
     DEFAULT_SURROUND_WITH_SPACES = set(['-', '+', '='])
     DEFAULT_APPEND_SPACE = set([','])
-    DEFAULT_MULTILINE = frozenset(['dependencies', 'artifact'])
+    DEFAULT_MULTILINE = frozenset(['dependencies', 'artifact', 'set'])
     DEFAULT_MULTILINE_COMPACT = frozenset([TOP_LEVEL])
     DEFAULT_ARG_ORDER = ('org', 'name', 'repo', 'provides', 'dependencies', 'sources')
     DEFAULT_SORT_VALUES_FOR = frozenset(['dependencies', 'sources'])

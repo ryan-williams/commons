@@ -54,11 +54,19 @@ class BuildDefinitionTest(unittest.TestCase):
 """
 # A multiline
 # comment.
+
+SINGLE_SOURCE_SET = set([ 'Thing1.scala' ])
+
 scala_library(
-  name = 'foo', sources=['Foo2.scala', 'Foo1.scala'],
+  name = 'foo', sources=['Foo2.scala', 'Foo1.scala'] + SINGLE_SOURCE_SET,
   dependencies =[pants('test/dep2'),
                 pants('test/dep1')],
                 )
+
+MULTIPLE_SOURCE_SET = set([
+  'Thing2.scala',
+  'Thing3.scala'
+])
 
 # A comment in
 
@@ -67,7 +75,7 @@ scala_library(
 scala_library(name ='bar',  # Comment
   dependencies= [ pants('test/dep3')   ],
   # Note that we won't sort the list below, because it's not the entire definition.
-  sources=rglobs('*.scala') -[ 'Something2.scala', 'Something1.scala' ])
+  sources=rglobs('*.scala') -[ 'Something2.scala', 'Something1.scala' ]+  MULTIPLE_SOURCE_SET)
 
 # A comment at the end.
 """
@@ -84,6 +92,11 @@ scala_library(name = 'foo',
   sources = ['Foo1.scala', 'Foo2.scala'],
 )
 
+MULTIPLE_SOURCE_SET = set([
+  'Thing2.scala',
+  'Thing3.scala'
+])
+
 # A comment in
 
 # the middle.
@@ -93,7 +106,7 @@ scala_library(name = 'bar',  # Comment
     pants('test/dep3'),
   ],
   # Note that we won't sort the list below, because it's not the entire definition.
-  sources = rglobs('*.scala') - ['Something2.scala', 'Something1.scala'],
+  sources = rglobs('*.scala') - ['Something2.scala', 'Something1.scala'] + MULTIPLE_SOURCE_SET,
 )
 
 # A comment at the end.

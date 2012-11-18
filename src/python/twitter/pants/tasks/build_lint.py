@@ -17,28 +17,57 @@
 __author__ = 'Benjy Weinberger'
 
 import difflib
+import re
 
-from twitter.pants.base.build_definition import BuildDefinition
 from twitter.pants.tasks import Task
 
 
 class BuildLint(Task):
+  @classmethod
+  def setup_parser(cls, option_group, args, mkflag):
+    Task.setup_parser(option_group, args, mkflag)
+
+    option_group.add_option(mkflag("transitive"), mkflag("transitive", negate=True),
+      dest="buildlint_transitive", default=False,
+      action="callback", callback=mkflag.set_bool,
+      help="[%default] apply lint rules transitively to all dependency buildfiles.")
+
+    option_group.add_option(mkflag("action"), dest="buildlint_actions", default=['diff'],
+      action="append", type="choice", choices=['diff', 'rewrite'],
+      help="diff=print out diffs, rewrite=apply changes to BUILD files directly.")
+
   def __init__(self, context):
     Task.__init__(self, context)
+    self.transitive = context.options.buildlint_transitive
+    self.actions = set(context.options.buildlint_actions)
 
   def execute(self, targets):
-    for target in targets:
-      self._fix_lint(target)
+    if self.transitive:
+      for target in targets:
+        self._fix_lint(target)
+    else:
+      for target in self.context.target_roots:
+        self._fix_lint(target)
+
+  DEPS_RE = re.compile(r'dependencies\s*=\s*\[((?:[^,]+),)([^,]+),?\s*\]', flags=re.DOTALL)
 
   def _fix_lint(self, target):
+    def sort_deps(m):
+      deps = m.group(1).split(',') + [m.group(2)]
+      deps = filter(lambda x: x, [x.strip() for x in deps])
+      deps = sorted(deps)
+      res = 'dependencies = [\n    %s,\n  ]' % (',\n    '.join(deps))
+      return res
+
     buildfile_path = target.address.buildfile.full_path
-    target_def = BuildDefinition(buildfile_path)
-    old_buildfile_lines = target_def.buildfile_lines
-    new_buildfile_lines = target_def.reformat_buildfile().split('\n')
-    if new_buildfile_lines != old_buildfile_lines:
-      with open(buildfile_path, 'w') as outfile:
-        outfile.write('\n'.join(new_buildfile_lines))
-    #  diff = '\n'.join(difflib.unified_diff(old_buildfile_lines, new_buildfile_lines, buildfile_path))
-    #else:
-    #  diff = "no diff for " + buildfile_path
-    #print diff
+    with open(buildfile_path, 'r') as infile:
+      old_buildfile_source = infile.read()
+    new_buildfile_source = BuildLint.DEPS_RE.sub(sort_deps, old_buildfile_source)
+    if new_buildfile_source != old_buildfile_source:
+      if 'rewrite' in self.actions:
+        with open(buildfile_path, 'w') as outfile:
+          outfile.write(new_buildfile_source)
+      if 'diff' in self.actions:
+        diff = '\n'.join(difflib.unified_diff(old_buildfile_source.split('\n'),
+          new_buildfile_source.split('\n'), buildfile_path))
+        print diff
