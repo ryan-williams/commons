@@ -663,7 +663,8 @@ from twitter.pants.tasks.python.setup import SetupPythonEnvironment
 
 goal(
   name='buildlint',
-  action=BuildLint
+  action=BuildLint,
+  dependencies=['compile'],
 ).install()
 
 goal(

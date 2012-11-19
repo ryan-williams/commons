@@ -13,11 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==================================================================================================
+import os
 
 __author__ = 'Benjy Weinberger'
 
 import difflib
 import re
+
+from collections import defaultdict
 
 from twitter.pants.tasks import Task
 
@@ -38,36 +41,62 @@ class BuildLint(Task):
 
   def __init__(self, context):
     Task.__init__(self, context)
+    context.products.require('missing_deps')
     self.transitive = context.options.buildlint_transitive
     self.actions = set(context.options.buildlint_actions)
 
   def execute(self, targets):
+    # Map from buildfile path to map of target name -> missing deps for that target.
+    buildfile_paths = defaultdict(lambda: defaultdict(list))
+    genmap = self.context.products.get('missing_deps')
+
+    def add_buildfile_for_target(target):
+      missing_dep_map = genmap[target]
+      missing_deps = missing_dep_map[self.context._buildroot] if missing_dep_map else defaultdict(list)
+      buildfile_paths[target.address.buildfile.full_path][target.name] = missing_deps
+
     if self.transitive:
       for target in targets:
-        self._fix_lint(target)
+        add_buildfile_for_target(target)
     else:
       for target in self.context.target_roots:
-        self._fix_lint(target)
+        add_buildfile_for_target(target)
 
+    for buildfile_path, missing_dep_map in buildfile_paths.items():
+      self._fix_lint(buildfile_path, missing_dep_map)
+
+  NAMES_RE = re.compile('\n\w+\(\s*name\s*=\s*["\']((?:\w|-)+)["\']', flags=re.DOTALL)
   DEPS_RE = re.compile(r'dependencies\s*=\s*\[([^\]]*)\s*\]', flags=re.DOTALL)
 
-  def _fix_lint(self, target):
-    def sort_deps(m):
-      deps = m.group(1).split(',')
-      deps = filter(lambda x: x, [x.strip() for x in deps])
-      deps = sorted(deps)
-      res = 'dependencies = [\n    %s,\n  ]' % (',\n    '.join(deps))
-      return res
+  def _fix_lint(self, buildfile_path, missing_dep_map):
+    if os.path.exists(buildfile_path):
+      with open(buildfile_path, 'r') as infile:
+        old_buildfile_source = infile.read()
+      names = []
+      for m in BuildLint.NAMES_RE.finditer(old_buildfile_source):
+        names.append((m.start(1), m.group(1)))
+      nameiter = iter(names)
 
-    buildfile_path = target.address.buildfile.full_path
-    with open(buildfile_path, 'r') as infile:
-      old_buildfile_source = infile.read()
-    new_buildfile_source = BuildLint.DEPS_RE.sub(sort_deps, old_buildfile_source)
-    if new_buildfile_source != old_buildfile_source:
-      if 'rewrite' in self.actions:
-        with open(buildfile_path, 'w') as outfile:
-          outfile.write(new_buildfile_source)
-      if 'diff' in self.actions:
-        diff = '\n'.join(difflib.unified_diff(old_buildfile_source.split('\n'),
-          new_buildfile_source.split('\n'), buildfile_path))
-        print diff
+      def sort_deps(m):
+        try:
+          name = nameiter.next()
+        except StopIteration:
+          name = '-UNKNOWN-'
+        deps = m.group(1).split('\n')
+        deps = filter(lambda x: x, [x.strip() for x in deps])
+        if deps and not deps[-1].endswith(','):
+          deps[-1] += ','
+        deps.extend(["pants('%s')," % x for x in missing_dep_map[name]])
+        deps = sorted(deps, key=lambda x: 'zzz' + x if x.startswith("pants(':") else x)
+        res = 'dependencies = [\n    %s\n  ]' % ('\n    '.join(deps)) if deps else 'dependencies = []'
+        return res
+
+      new_buildfile_source = BuildLint.DEPS_RE.sub(sort_deps, old_buildfile_source)
+      if new_buildfile_source != old_buildfile_source:
+        if 'rewrite' in self.actions:
+          with open(buildfile_path, 'w') as outfile:
+            outfile.write(new_buildfile_source)
+        if 'diff' in self.actions:
+          diff = '\n'.join(difflib.unified_diff(old_buildfile_source.split('\n'),
+            new_buildfile_source.split('\n'), buildfile_path))
+          print diff

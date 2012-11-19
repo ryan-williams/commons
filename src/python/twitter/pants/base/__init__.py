@@ -15,7 +15,6 @@
 # ==================================================================================================
 
 from .address import Address
-from .build_definition import BuildDefinition
 from .build_file import BuildFile
 from .config import Config
 from .fileset import Fileset
@@ -26,7 +25,6 @@ from .timer import Timer
 
 __all__ = [
   'Address',
-  'BuildDefinition',
   'BuildFile',
   'Config',
   'ContextError',

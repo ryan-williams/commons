@@ -84,8 +84,8 @@ class ScalaCompile(NailgunTask):
                                  [%default] Check all dependencies in scala code (for debugging purposes).
                                  Currently the dep check only looks at scala code missing deps on other scala code.
                                  Expanding this to missing deps on any code (e.g., Java code or 3rd party jars) is a
-                                 work in progress, and is controlled by the "check all deps" flag. This flag will go away
-                                 once we have a feature-complete dep checker.""")
+                                 work in progress, and is controlled by the "check all deps" flag. This flag will
+                                 go away once we have a feature-complete dep checker.""")
 
   def __init__(self, context, workdir=None):
     NailgunTask.__init__(self, context, workdir=context.config.get('scala-compile', 'nailgun_dir'))
@@ -199,7 +199,9 @@ class ScalaCompile(NailgunTask):
           if len(deps) > 0:
             # for now, just print a message. Later, upgrade this to really generate
             # an error.
+            genmap = self.context.products.get('missing_deps')
             for dep_target in deps:
+              genmap.add(target, self.context._buildroot, [dep_target.address])
               print ("Error: target %s has undeclared compilation dependency on %s," %
                      (target.address, dep_target.address))
               print ("because source file %s depends on class %s" %
