@@ -99,6 +99,10 @@ class Target(object):
       self.register()
       self._initialized = True
 
+      # For synthetic codegen targets this will be the original target from which
+      # the target was synthesized.
+      self.derived_from = self
+
   def _post_construct(self, func, *args, **kwargs):
     """Registers a command to invoke after this target's BUILD file is parsed."""
 

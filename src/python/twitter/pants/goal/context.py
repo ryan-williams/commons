@@ -3,7 +3,7 @@ from __future__ import print_function
 
 import hashlib
 import os
-import sys  
+import sys
 
 from collections import defaultdict
 from contextlib import contextmanager
@@ -141,8 +141,15 @@ class Context(object):
     This method ensures the target resolves files against the given target_base, creating the
     directory if needed and registering a source root.
     """
+    if 'derived_from' in kwargs:
+      derived_from = kwargs.get('derived_from')
+      del kwargs['derived_from']
+    else:
+      derived_from = None
     target = self._create_new_target(target_base, target_type, *args, **kwargs)
     self.add_target(target)
+    if derived_from:
+      target.derived_from = derived_from
     return target
 
   def _create_new_target(self, target_base, target_type, *args, **kwargs):

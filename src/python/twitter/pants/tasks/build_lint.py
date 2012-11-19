@@ -65,7 +65,7 @@ class BuildLint(Task):
     for buildfile_path, missing_dep_map in buildfile_paths.items():
       self._fix_lint(buildfile_path, missing_dep_map)
 
-  NAMES_RE = re.compile('\n\w+\(\s*name\s*=\s*["\']((?:\w|-)+)["\']', flags=re.DOTALL)
+  NAMES_RE = re.compile('^\w+\(\s*name\s*=\s*["\']((?:\w|-)+)["\']', flags=re.DOTALL|re.MULTILINE)
   DEPS_RE = re.compile(r'dependencies\s*=\s*\[([^\]]*)\s*\]', flags=re.DOTALL)
 
   def _fix_lint(self, buildfile_path, missing_dep_map):
@@ -74,7 +74,7 @@ class BuildLint(Task):
         old_buildfile_source = infile.read()
       names = []
       for m in BuildLint.NAMES_RE.finditer(old_buildfile_source):
-        names.append((m.start(1), m.group(1)))
+        names.append(m.group(1))
       nameiter = iter(names)
 
       def sort_deps(m):
@@ -84,9 +84,12 @@ class BuildLint(Task):
           name = '-UNKNOWN-'
         deps = m.group(1).split('\n')
         deps = filter(lambda x: x, [x.strip() for x in deps])
-        if deps and not deps[-1].endswith(','):
-          deps[-1] += ','
-        deps.extend(["pants('%s')," % x for x in missing_dep_map[name]])
+        if deps:  # Add comma if needed. We must do this before sorting.
+          parts = [x.strip() for x in deps[-1].split('#')]
+          if not parts[0].rstrip().endswith(','):
+            deps[-1] = '%s,%s' % (parts[0], ' #' + parts[1] if len(parts) > 1 else '')
+        missing_deps = ["pants('%s')," % x for x in missing_dep_map[name]]
+        deps.extend(missing_deps)
         deps = sorted(deps, key=lambda x: 'zzz' + x if x.startswith("pants(':") else x)
         res = 'dependencies = [\n    %s\n  ]' % ('\n    '.join(deps)) if deps else 'dependencies = []'
         return res

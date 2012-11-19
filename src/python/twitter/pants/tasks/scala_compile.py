@@ -200,13 +200,12 @@ class ScalaCompile(NailgunTask):
             # for now, just print a message. Later, upgrade this to really generate
             # an error.
             genmap = self.context.products.get('missing_deps')
+            genmap.add(target, self.context._buildroot, [x.derived_from.address.reference() for x in deps])
             for dep_target in deps:
-              genmap.add(target, self.context._buildroot, [dep_target.address])
               print ("Error: target %s has undeclared compilation dependency on %s," %
-                     (target.address, dep_target.address))
-              print ("because source file %s depends on class %s" %
+                     (target.address, dep_target.derived_from.address.reference()))
+              print ("       because source file %s depends on class %s" %
                      deps_cache.get_dependency_blame(target, dep_target))
-
 
   def _dependency_walk_work(self, deps, target):
     if target in deps:

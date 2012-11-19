@@ -62,6 +62,14 @@ class Address(object):
     self.target_name = target_name
     self.is_meta = is_meta
 
+  def reference(self):
+    dirname = os.path.dirname(self.buildfile.relpath)
+    if os.path.basename(dirname) != self.target_name:
+      ret = '%s:%s' % (dirname, self.target_name)
+    else:
+      ret = dirname
+    return ret
+
   def __eq__(self, other):
     result = other and (
       type(other) == Address) and (
