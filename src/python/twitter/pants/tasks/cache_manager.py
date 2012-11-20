@@ -21,7 +21,7 @@ except ImportError:
 
 from twitter.pants.base.build_invalidator import BuildInvalidator, CacheKeyGenerator, NO_SOURCES, TARGET_SOURCES
 from twitter.pants.base.target import Target
-from twitter.pants.targets import JarDependency
+from twitter.pants.targets import JarDependency, TargetWithSources
 from twitter.pants.targets.internal import InternalTarget
 
 
@@ -37,13 +37,36 @@ class VersionedTargetSet(object):
     self._cache_manager = cache_manager
     self.per_target_cache_keys = per_target_cache_keys
 
-    self.targets = targets
     self.cache_key = CacheKeyGenerator.combine_cache_keys(per_target_cache_keys)
+    self.num_sources = self.cache_key.num_sources
     self.valid = not cache_manager.needs_update(self.cache_key)
+    self.targets = targets
+
+
+  @staticmethod
+  def from_versioned_targets(versioned_targets):
+    cache_manager = list(versioned_targets)[0]._cache_manager
+    targets = [ vt.target for vt in versioned_targets ]
+    cache_keys = [ vt.cache_key for vt in versioned_targets ]
+    return VersionedTargetSet(cache_manager, targets, cache_keys)
 
   def update(self):
     self._cache_manager.update(self)
     self.valid = True
+
+  def __repr__(self):
+    return "VTS(%s. %d)" % (','.join(target.id for target in self.targets), 1 if self.valid else 0)
+
+
+class VersionedTarget(VersionedTargetSet):
+  def __init__(self, cache_manager, target, cache_key):
+    VersionedTargetSet.__init__(self, cache_manager, [ target ], [ cache_key ])
+    self.target = target
+    self.id = target.id
+    self.dependencies = set([])
+    if not isinstance(target, TargetWithSources):
+      raise Exception("Making VersionedTarget for target %s that doesn't have any sources" % target.id)
+
 
 # The result of calling check() on a CacheManager.
 # Each member is a list of VersionedTargetSet objects in topological order.
@@ -104,6 +127,7 @@ class CacheManager(object):
     # we use earlier cache keys to compute later cache keys in this case.
     ordered_targets = self._order_target_list(targets)
     versioned_targets = []
+    versioned_targets_by_target = {}
 
     # Map from id to current fingerprint of the target with that id. We update this as we iterate, in
     # topological order, so when handling a target, this will already contain all its deps (in this round).
@@ -139,7 +163,29 @@ class CacheManager(object):
             # know jars are special and python requirements __str__ works for this purpose.
       cache_key = self._key_for(target, dependency_keys)
       id_to_hash[target.id] = cache_key.hash
-      versioned_targets.append(VersionedTargetSet(self, [target], [cache_key]))
+
+      versioned_target = VersionedTarget(self, target, cache_key)
+      versioned_targets.append(versioned_target)
+      versioned_targets_by_target[target] = versioned_target
+
+    versioned_target_deps_by_target = {}
+
+    def get_versioned_target_deps_for_target(target):
+      deps = set([])
+      if hasattr(target, 'dependencies'):
+        for dep in target.dependencies:
+          for dependency in dep.resolve():
+            if dependency in versioned_targets_by_target:
+              deps.add(versioned_targets_by_target[dependency])
+            elif dependency in versioned_target_deps_by_target:
+              deps.update(versioned_target_deps_by_target[dependency])
+            else:
+              versioned_target_deps_by_target[dependency] = get_versioned_target_deps_for_target(dependency)
+              deps.update(versioned_target_deps_by_target[dependency])
+      return deps
+
+    for versioned_target in versioned_targets:
+      versioned_target.dependencies = get_versioned_target_deps_for_target(versioned_target.target)
 
     return versioned_targets
 
@@ -160,7 +206,7 @@ class CacheManager(object):
   def _partition_versioned_targets(self, versioned_targets, partition_size_hint):
     """Groups versioned targets so that each group has roughly the same number of sources.
 
-    versioned_targets is a list of VersionedTargetSet objects  [ vt1, vt2, vt3, vt4, vt5, vt6, ...].
+    versioned_targets is a list of VersionedTarget objects  [ vt1, vt2, vt3, vt4, vt5, vt6, ...].
 
     Returns a list of VersionedTargetSet objects, e.g., [ VT1, VT2, VT3, ...] representing the
     same underlying targets. E.g., VT1 is the combination of [vt1, vt2, vt3], VT2 is the combination
@@ -185,11 +231,11 @@ class CacheManager(object):
 
     def add_to_current_group(vt):
       current_group.vts.append(vt)
-      current_group.total_sources += vt.cache_key.num_sources
+      current_group.total_sources += vt.num_sources
 
     def close_current_group():
       if len(current_group.vts) > 0:
-        new_vt = self._combine_versioned_targets(current_group.vts)
+        new_vt = VersionedTargetSet.from_versioned_targets(current_group.vts)
         res.append(new_vt)
         current_group.vts = []
         current_group.total_sources = 0
@@ -207,12 +253,6 @@ class CacheManager(object):
     close_current_group()  # Close the last group, if any.
 
     return res
-
-  def _combine_versioned_targets(self, vts):
-    targets = []
-    for vt in vts:
-      targets.extend(vt.targets)
-    return VersionedTargetSet(self, targets, [vt.cache_key for vt in vts])
 
   def _key_for(self, target, dependency_keys):
     def fingerprint_extra(sha):
