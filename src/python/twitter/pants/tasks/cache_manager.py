@@ -20,6 +20,7 @@ except ImportError:
   import pickle
 
 from twitter.pants.base.build_invalidator import BuildInvalidator, CacheKeyGenerator, NO_SOURCES, TARGET_SOURCES
+from twitter.pants.base.double_tree import DoubleTree
 from twitter.pants.base.target import Target
 from twitter.pants.targets import JarDependency, TargetWithSources
 from twitter.pants.targets.internal import InternalTarget
@@ -86,6 +87,14 @@ class InvalidationResult(object):
     # Just the invalid targets, partitioned if so requested.
     self.invalid_vts_partitioned = invalid_vts_partitioned
 
+class ParallelInvalidationResult(object):
+  def __init__(self, all_vts, invalid_vts, invalid_target_tree):
+    self.all_vts = all_vts
+
+    self.invalid_vts = invalid_vts
+
+    self._invalid_target_tree = invalid_target_tree
+
 class CacheManager(object):
   """Manages cache checks, updates and invalidation keeping track of basic change
   and invalidation statistics.
@@ -117,6 +126,13 @@ class CacheManager(object):
     all_vts_partitioned = self._partition_versioned_targets(all_vts, partition_size_hint)
     invalid_vts_partitioned = self._partition_versioned_targets(invalid_vts, partition_size_hint)
     return InvalidationResult(all_vts, all_vts_partitioned, invalid_vts, invalid_vts_partitioned)
+
+  def invalidate_and_break_into_parallelizable_targets(self, targets):
+    all_vts = self._sort_and_validate_targets(targets)
+    invalid_vts = filter(lambda vt: not vt.valid, all_vts)
+    print ("got %d invalid vts" % len(invalid_vts))
+    invalid_target_tree = DoubleTree(invalid_vts, lambda t: filter(lambda d: not d.valid, t.dependencies))
+    return ParallelInvalidationResult(all_vts, invalid_vts, invalid_target_tree)
 
   def _sort_and_validate_targets(self, targets):
     """Validate each target.

@@ -23,7 +23,6 @@ from twitter.pants.base.artifact_cache import create_artifact_cache
 from twitter.pants.base.build_invalidator import CacheKeyGenerator
 from twitter.pants.tasks.cache_manager import CacheManager
 
-
 class TaskError(Exception):
   """Raised to indicate a task has failed."""
 
@@ -104,7 +103,8 @@ class Task(object):
                   targets,
                   only_buildfiles = False,
                   invalidate_dependents = False,
-                  partition_size_hint = sys.maxint):
+                  partition_size_hint = sys.maxint,
+                  is_parallel_compile = False):
     """Checks targets for invalidation. Subclasses call this to figure out what to work on.
 
     targets: The targets to check for changes.
@@ -133,9 +133,12 @@ class Task(object):
     cache_manager = CacheManager(self._cache_key_generator, self._build_invalidator_dir,
       invalidate_dependents, extra_data, only_buildfiles)
 
-    invalidation_result = cache_manager.check(targets, partition_size_hint)
+    if (is_parallel_compile):
+      invalidation_result = cache_manager.invalidate_and_break_into_parallelizable_targets(targets)
+    else:
+      invalidation_result = cache_manager.check(targets, partition_size_hint)
+      #num_invalid_partitions = len(invalidation_result.invalid_vts_partitioned)
 
-    num_invalid_partitions = len(invalidation_result.invalid_vts_partitioned)
     num_invalid_targets = 0
     num_invalid_sources = 0
     for vt in invalidation_result.invalid_vts:
@@ -144,15 +147,16 @@ class Task(object):
         num_invalid_sources += vt.cache_key.num_sources
 
     # Do some reporting.
-    if num_invalid_partitions > 0:
-      self.context.log.info('Operating on %d files in %d invalidated targets in %d target partitions' % \
-                            (num_invalid_sources, num_invalid_targets, num_invalid_partitions))
+    self.context.log.info('Operating on %d files in %d invalidated targets' %\
+                          (num_invalid_sources, num_invalid_targets))
+
 
     # Yield the result, and then update the cache.
     yield invalidation_result
     if not self.dry_run:
       for vt in invalidation_result.invalid_vts:
         vt.update()  # In case the caller doesn't update.
+
 
   @contextmanager
   def check_artifact_cache(self, versioned_targets, build_artifacts):

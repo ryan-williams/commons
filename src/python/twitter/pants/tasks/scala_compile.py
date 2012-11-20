@@ -35,9 +35,13 @@ from twitter.pants.targets.scala_tests import ScalaTests
 from twitter.pants.targets import resolve_target_sources
 from twitter.pants.tasks import TaskError
 from twitter.pants.tasks.binary_utils import nailgun_profile_classpath
+from twitter.pants.tasks.cache_manager import VersionedTargetSet
 from twitter.pants.tasks.jvm_compiler_dependencies import Dependencies
 from twitter.pants.tasks.jvm_dependency_cache import JvmDependencyCache
 from twitter.pants.tasks.nailgun_task import NailgunTask
+from twitter.pants.python import NaiveParallelizer
+from twitter.pants.python import PartitioningParallelizer
+from twitter.pants.python import LevelingParallelizer
 
 # Well known metadata file required to register scalac plugins with nsc.
 _PLUGIN_INFO_FILE = 'scalac-plugin.xml'
@@ -64,6 +68,14 @@ class ScalaCompile(NailgunTask):
       action="store", type="int", default=-1,
       help="Roughly how many source files to attempt to compile together. Set to a large number to compile " \
            "all sources together. Set this to 0 to compile target-by-target. Default is set in pants.ini.")
+
+    option_group.add_option(mkflag("max-parallel"), dest="scala_compile_max_num_parallel_compiles",
+      action="store", type="int", default=0,
+      help="Use up to this many parallel invocations of Zinc while compiling scala files.")
+
+    option_group.add_option(mkflag("parallelization-strategy"), dest="scala_compile_parallelization_strategy",
+      action="store", type="string", default="leveling",
+      help="'partitioned' (default) for partitioned parallel compiling. 'naive' for naive.")
 
     option_group.add_option(mkflag("color"), mkflag("color", negate=True),
                             dest="scala_compile_color",
@@ -99,6 +111,12 @@ class ScalaCompile(NailgunTask):
     self.check_all_deps = context.options.scala_check_all_deps
     if self.check_missing_deps:
       self.context.products.require('classes')
+
+    self._parallelize_compilation = True if context.options.scala_compile_max_num_parallel_compiles > 0 else False
+
+    self._num_parallel_compiles = context.options.scala_compile_max_num_parallel_compiles
+
+    self._parallelization_strategy = context.options.scala_compile_parallelization_strategy
 
     # We use the scala_compile_color flag if it is explicitly set on the command line.
     self._color = \
@@ -166,6 +184,12 @@ class ScalaCompile(NailgunTask):
     return True
 
   def execute(self, targets):
+    self.context.log.info(
+      'scala compiling %d targets in %s' % (
+        len(targets),
+        (("parallel (%s)" % str(self._num_parallel_compiles)) if self._parallelize_compilation else "serial")))
+    for target in targets:
+      self.context.log.debug("\t%s" % target.id)
     scala_targets = filter(ScalaCompile._has_scala_sources, targets)
     if scala_targets:
       safe_mkdir(self._depfile_dir)
@@ -181,15 +205,72 @@ class ScalaCompile(NailgunTask):
             cp.insert(0, (conf, jar))
 
       with self.invalidated(scala_targets, invalidate_dependents=True,
-          partition_size_hint=self._partition_size_hint) as invalidation_result:
+        partition_size_hint=self._partition_size_hint, is_parallel_compile=self._parallelize_compilation) as invalidation_result:
+
         for vt in invalidation_result.all_vts:
           if vt.valid:  # Don't compile, just post-process.
             self.post_process(vt, upstream_analysis_caches, split_artifact=False)
-        for vt in invalidation_result.invalid_vts_partitioned:
-          # Compile, using partitions for efficiency.
-          self.execute_single_compilation(vt, cp, upstream_analysis_caches)
-          if not self.dry_run:
-            vt.update()
+
+        if self._parallelize_compilation:
+          # TODO(ryan): should probably just make ParallelCompileManager understand VersionedTarget and
+          # VersionedTargetSet, and move this in there.
+          def versioned_target_nodes_to_versioned_target_set(versioned_target_nodes):
+            versioned_targets = [node.data for node in versioned_target_nodes]
+            return VersionedTargetSet.from_versioned_targets(versioned_targets)
+
+          def live_compile_cmd(versioned_target_nodes):
+            return self.execute_single_compilation(
+              versioned_target_nodes_to_versioned_target_set(versioned_target_nodes),
+              cp,
+              upstream_analysis_caches,
+              True)
+
+          def live_post_compile_cmd(versioned_target_nodes):
+            if not self.dry_run:
+              vts = versioned_target_nodes_to_versioned_target_set(versioned_target_nodes)
+              self.post_process(vts, upstream_analysis_caches, split_artifact=True)
+              vts.update()
+
+          def dry_run_compile_cmd(versioned_target_nodes):
+            print "dry run compiling nodes: {%s}" % ','.join([t.data.id for t in versioned_target_nodes])
+            return None
+
+          compile_cmd = dry_run_compile_cmd if self.dry_run else live_compile_cmd
+          post_compile_cmd = None if self.dry_run else live_post_compile_cmd
+
+          if self._parallelization_strategy == 'naive':
+            print "Using naive parallelizer"
+            NaiveParallelizer(
+              self.context.log,
+              invalidation_result._invalid_target_tree,
+              self._num_parallel_compiles,
+              compile_cmd,
+              post_compile_cmd).execute()
+          elif self._parallelization_strategy == 'partitioned':
+            print "Using partitioned parallelizer (hint: %d)" % self._partition_size_hint
+            PartitioningParallelizer(
+              self.context.log,
+              invalidation_result._invalid_target_tree,
+              self._num_parallel_compiles,
+              self._partition_size_hint,
+              compile_cmd,
+              post_compile_cmd).execute()
+          else:
+            print "Using leveling parallelizer"
+            LevelingParallelizer(
+              self.context.log,
+              invalidation_result._invalid_target_tree,
+              self._num_parallel_compiles,
+              compile_cmd,
+              post_compile_cmd).execute()
+
+        else:
+          for vt in invalidation_result.invalid_vts_partitioned:
+            # Compile, using partitions for efficiency.
+            self.execute_single_compilation(vt, cp, upstream_analysis_caches)
+            if not self.dry_run:
+              vt.update()
+
       if self.check_missing_deps:
         deps_cache = JvmDependencyCache(self, scala_targets)
         target_deps = deps_cache.get_compilation_dependencies()
@@ -221,11 +302,12 @@ class ScalaCompile(NailgunTask):
     analysis_cache = os.path.join(self._analysis_cache_dir, compilation_id) + '.analysis_cache'
     return output_dir, depfile, analysis_cache
 
-  def execute_single_compilation(self, versioned_target_set, cp, upstream_analysis_caches):
+  def execute_single_compilation(self, versioned_target_set, cp, upstream_analysis_caches, run_async=False):
     """Execute a single compilation, updating upstream_analysis_caches if needed."""
     output_dir, depfile, analysis_cache = self.create_output_paths(versioned_target_set.targets)
     safe_mkdir(output_dir)
 
+    result = None
     if not versioned_target_set.valid:
       with self.check_artifact_cache(versioned_target_set,
                                      build_artifacts=[output_dir, depfile, analysis_cache]) as in_cache:
@@ -240,10 +322,16 @@ class ScalaCompile(NailgunTask):
                                     '\n  '.join(str(t) for t in sources_by_target.keys()))
             else:
               classpath = [jar for conf, jar in cp if conf in self._confs]
-              result = self.compile(classpath, sources, output_dir, analysis_cache, upstream_analysis_caches, depfile)
-              if result != 0:
+              result = self.compile(classpath, sources,
+                output_dir, analysis_cache, upstream_analysis_caches, depfile, run_async=run_async)
+              if result != 0 and not run_async:
                 raise TaskError('%s returned %d' % (self._main, result))
-    self.post_process(versioned_target_set, upstream_analysis_caches, split_artifact=True)
+    if not run_async:
+      # If we're running asynchronously, the compile has just been spawned and is (in all likelihood) still running). Worry about calling this later.
+      # TODO(ryan): incorporate this into a more unified "post-compile-command", possibly also encompassing the update()
+      # logic handled in the Parallelizer's post_compile_cmd above.
+      self.post_process(versioned_target_set, upstream_analysis_caches, split_artifact=True)
+    return result
 
   # Post-processing steps that must happen even for valid targets.
   def post_process(self, vt, upstream_analysis_caches, split_artifact):
@@ -301,7 +389,7 @@ class ScalaCompile(NailgunTask):
       collect_sources(target)
     return sources
 
-  def compile(self, classpath, sources, output_dir, analysis_cache, upstream_analysis_caches, depfile):
+  def compile(self, classpath, sources, output_dir, analysis_cache, upstream_analysis_caches, depfile, run_async=False):
     # To pass options to scalac simply prefix with -S.
     args = ['-S' + x for x in self._args]
 
@@ -337,7 +425,7 @@ class ScalaCompile(NailgunTask):
     args.extend(sources)
 
     self.context.log.debug('Executing: %s %s' % (self._main, ' '.join(args)))
-    return self.runjava(self._main, classpath=self._zinc_classpath, args=args, jvmargs=self._jvm_args)
+    return self.runjava(self._main, classpath=self._zinc_classpath, args=args, jvmargs=self._jvm_args, run_async=run_async)
 
   # Splits an artifact representing several targets into target-by-target artifacts.
   # Creates an output classes dir, a depfile and an analysis file for each target.
