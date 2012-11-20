@@ -66,7 +66,7 @@ class BuildLint(Task):
       self._fix_lint(buildfile_path, missing_dep_map)
 
   NAMES_RE = re.compile('^\w+\(\s*name\s*=\s*["\']((?:\w|-)+)["\']', flags=re.DOTALL|re.MULTILINE)
-  DEPS_RE = re.compile(r'dependencies\s*=\s*\[([^\]]*)\s*\]', flags=re.DOTALL)
+  DEPS_RE = re.compile(r'^\s*dependencies\s*=\s*\[([^\]]*)\s*\]', flags=re.DOTALL|re.MULTILINE)
 
   def _fix_lint(self, buildfile_path, missing_dep_map):
     if os.path.exists(buildfile_path):
@@ -91,7 +91,7 @@ class BuildLint(Task):
         missing_deps = ["pants('%s')," % x for x in missing_dep_map[name]]
         deps.extend(missing_deps)
         deps = sorted(deps, key=lambda x: 'zzz' + x if x.startswith("pants(':") else x)
-        res = 'dependencies = [\n    %s\n  ]' % ('\n    '.join(deps)) if deps else 'dependencies = []'
+        res = '  dependencies = [\n    %s\n  ]' % ('\n    '.join(deps)) if deps else 'dependencies = []'
         return res
 
       new_buildfile_source = BuildLint.DEPS_RE.sub(sort_deps, old_buildfile_source)
