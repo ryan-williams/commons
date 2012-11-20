@@ -34,3 +34,19 @@ python_tests(name = 'test_thrift_namespace_packages',
   dependencies = [ pants('src/thrift/com/twitter/pants/testing:duck-py'),
                    pants('src/thrift/com/twitter/pants/testing:goose-py') ]
 )
+
+python_library(name = 'parallelizer_test', sources = [ 'parallelizer_test.py' ])
+
+python_tests(name = 'pp', sources = [ 'test_partitioning_parallelizer.py' ],
+  dependencies = [
+    pants('tests/python/twitter/pants/test'),
+    pants('src/python/twitter/pants:pants-lib'),
+  ]
+)
+
+python_tests(name = 'lp', sources = [ 'test_leveling_parallelizer.py' ],
+  dependencies = [
+    pants('tests/python/twitter/pants/test'),
+    pants('src/python/twitter/pants:pants-lib'),
+    ]
+)
