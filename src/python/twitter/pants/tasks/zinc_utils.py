@@ -88,7 +88,7 @@ class ZincUtils(object):
     """The jars containing code for enabled plugins."""
     return self._plugin_jars
 
-  def run_zinc(self, args):
+  def run_zinc(self, args, run_async=False):
     zinc_args = [
       '-log-level', self._context.options.log_level or 'info',
       ]
@@ -96,9 +96,9 @@ class ZincUtils(object):
       zinc_args.append('-no-color')
     zinc_args.extend(self._zinc_jar_args)
     zinc_args.extend(args)
-    return self._java_runner(self._main, classpath=self._zinc_classpath, args=zinc_args, jvmargs=self._jvm_args)
+    return self._java_runner(self._main, classpath=self._zinc_classpath, args=zinc_args, jvmargs=self._jvm_args, run_async=run_async)
 
-  def compile(self, classpath, sources, output_dir, analysis_cache, upstream_analysis_caches, depfile):
+  def compile(self, classpath, sources, output_dir, analysis_cache, upstream_analysis_caches, depfile, run_async=False):
     # To pass options to scalac simply prefix with -S.
     args = ['-S' + x for x in self._scalac_args]
 
@@ -126,7 +126,7 @@ class ZincUtils(object):
       '-d', output_dir
     ])
     args.extend(sources)
-    return self.run_zinc(args)
+    return self.run_zinc(args, run_async)
 
   # Run zinc in analysis manipulation mode.
   def run_zinc_analysis(self, cache, args):

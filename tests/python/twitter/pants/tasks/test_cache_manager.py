@@ -5,6 +5,7 @@ import unittest
 import shutil
 import tempfile
 from twitter.pants.base.build_invalidator import CacheKey, CacheKeyGenerator
+from twitter.pants.goal.context import Context
 from twitter.pants.tasks import CacheManager
 from twitter.pants.tasks.cache_manager import VersionedTargetSet
 from twitter.pants.targets import InternalTarget
@@ -33,7 +34,7 @@ class AppendingCacheKeyGenerator(CacheKeyGenerator):
 
 class TestCacheManager(CacheManager):
   def __init__(self, tmpdir):
-    CacheManager.__init__(self, AppendingCacheKeyGenerator(), tmpdir, True, None, False)
+    CacheManager.__init__(self, AppendingCacheKeyGenerator(), tmpdir, True, None, False, Context.Log())
 
 
 def print_vt(vt):

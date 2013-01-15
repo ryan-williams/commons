@@ -127,7 +127,7 @@ def safe_classpath(logger=None):
     yield
 
 
-def runjava(jvmargs=None, classpath=None, main=None, args=None, only_write_cmd_line_to=None):
+def runjava(jvmargs=None, classpath=None, main=None, args=None, only_write_cmd_line_to=None, run_async=False):
   """Spawns a java process with the supplied configuration and returns its exit code."""
   cmd = ['java']
   if jvmargs:
@@ -145,7 +145,10 @@ def runjava(jvmargs=None, classpath=None, main=None, args=None, only_write_cmd_l
   else:
     log.debug('Executing: %s' % ' '.join(cmd))
     with safe_classpath():
-      return subprocess.call(cmd)
+      if run_async:
+        return subprocess.Popen(cmd)
+      else:
+        return subprocess.call(cmd)
 
 def find_java_home():
   # A kind-of-insane hack to find the effective java home. On some platforms there are so
