@@ -23,6 +23,15 @@ from twitter.pants.base import Target
 from twitter.pants.targets.sources import SourceRoot
 
 class TargetWithSources(Target):
+
+  _source_to_targets = {}
+
+  @classmethod
+  def register_source(cls, source, target):
+    if source not in cls._source_to_targets:
+      cls._source_to_targets[source] = set()
+    cls._source_to_targets[source].add(target)
+
   def __init__(self, name, is_meta=False):
     Target.__init__(self, name, is_meta)
 
