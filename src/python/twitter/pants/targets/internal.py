@@ -180,7 +180,8 @@ class InternalTarget(Target):
   def update_dependencies(self, dependencies):
     if dependencies:
       for dependency in dependencies:
-        self.dependency_addresses.add(dependency.address)
+        if hasattr(dependency, 'address'):
+          self.dependency_addresses.add(dependency.address)
         for resolved_dependency in dependency.resolve():
           self.dependencies.add(resolved_dependency)
           if isinstance(resolved_dependency, InternalTarget):
